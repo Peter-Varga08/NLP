@@ -18,6 +18,14 @@ Since the data set is currently not yet publicly available, we do not provide it
 ## Usage
 
 * __Statistical model__:
+  * Training a RandomForest model and obtaining test predictions on logging features:
+    * `(cd Statistical_and_ML_models/ && python3 run.py -e numeric -m rf -s -t)`
+  * Training a RandomForest model and obtaining test predictions on linguistic features:
+    * `(cd Statistical_and_ML_models/ && python3 run.py -e linguistic -m rf -s -t)`
+  * Training a RandomForest model and obtaining test predictions on both features:
+    * `(cd Statistical_and_ML_models/ && python3 run.py -e combined -m rf -s -t)`
+    
+  * NOTE: Training the LinearRegression model can be done using the same commands, with `-m` being supplied with a value of `lr`:
 
 
 * __Neural network__: see the readme file in the NeuralNetwork folder
@@ -37,5 +45,7 @@ Since the data set is currently not yet publicly available, we do not provide it
 
 For evaluating the output of a model on the official test set, we use *utils_evaluate.py*. It takes as input a .txt-file with predictions (0, 1 and 2 for subjects t1, t2 and t3) and returns the accuracy. The following command can be run:
 
-- `python3 utils_evaluate.py -g IK_NLP_22_PESTYLE/IK_NLP_22_PESTYLE/test.tsv -s ./Statistical_and_ML_models/predictions/classifier_numeric_predictions.txt`
-- `(cd Statistical_and_ML_models/ && python3 run.py -e numeric -m rf -s -p -t)`
+* Example of obtaining test accuracy of the classifier (i.e. RandomForest) model having used only the linguistic features
+  - `python3 utils_evaluate.py -g IK_NLP_22_PESTYLE/IK_NLP_22_PESTYLE/test.tsv -s ./Statistical_and_ML_models/predictions/classifier_linguistic_predictions.txt`
+* Example of obtaining test accuracy of the regressor (i.e. LinearRegression) model having used only the linguistic features
+  - `python3 utils_evaluate.py -g IK_NLP_22_PESTYLE/IK_NLP_22_PESTYLE/test.tsv -s ./Statistical_and_ML_models/predictions/regressor_linguistic_predictions.txt`
