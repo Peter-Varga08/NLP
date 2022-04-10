@@ -5,30 +5,35 @@ This repository contains the code used for the report *Comparing Statistical and
 
 [Maybe something about the different models and how we divided these in several folders]
 
-## Installation
-
-#### Dependencies
-
-[Add steps, for instance containing to use pip install -r requirements.txt]
-
 #### Data
 
 [Provide information on the dataset here (e.g. why we do not include it in the repository and add an external link to the official page on HuggingFace]
+## Installation
+
+1. Install dependencies with `pip install -r requirements.txt`
+2. If you wish to use our fine-tuned Italian BERT model, you can download it from [here](https://drive.google.com/drive/folders/1pAsYmxCd2ch0zrofpH-C-spYXEsJP7M7?usp=sharing).
 
 ## Usage
 
-### Training models
+* __Statistical model__:
 
-[Commands for running the models]
 
-### Using already trained models
+* __Neural network__:
 
-[Commands for running the models]
+* __IT BERT__:
+  * Fine-tuning a model:
+  
+    `python3 transformer_classifier.py -tr IK_NLP_22_PESTYLE/train.tsv -te IK_NLP_22_PESTYLE/test.tsv -o results_file.txt`
+  * Making predictions with an already fine-tuned model (such as [this one](https://drive.google.com/drive/folders/1pAsYmxCd2ch0zrofpH-C-spYXEsJP7M7?usp=sharing)):
+  
+    `python3 transformer_classifier.py -tr IK_NLP_22_PESTYLE/train.tsv -te IK_NLP_22_PESTYLE/test.tsv -o results_file.txt -m outputs/checkpoint-237-epoch-3`
 
-### Evaluation
 
-[Commands for evaluating the models]
 
+
+## Evaluation
+
+For evaluating the output of a model on the official test set, we use *utils_evaluate.py*. It takes as input a .txt-file with predictions (0, 1 and 2 for subjects t1, t2 and t3) and returns the accuracy. The following command can be run:
 
 - `python3 utils_evaluate.py -g IK_NLP_22_PESTYLE/IK_NLP_22_PESTYLE/test.tsv -s ./Statistical_and_ML_models/predictions/classifier_numeric_predictions.txt`
 - `(cd Statistical_and_ML_models/ && python3 run.py -e numeric -m rf -s -p -t)`
