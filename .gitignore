@@ -1,7 +1,12 @@
+# Dataset
+IK_NLP_22_PESTYLE/
+*/IK_NLP_22_PESTYLE
+
 # Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[cod]
 *$py.class
+
 
 # C extensions
 *.so
@@ -127,3 +132,4 @@ dmypy.json
 
 # Pyre type checker
 .pyre/
+.idea/

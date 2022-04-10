@@ -1,0 +1,84 @@
+>>> Raw Text Properties:
+
+[n_sentences]: total number of sentences
+[n_tokens]: total number of tokens
+[tokens_per_sent]: average length of sentences in a document, calculated in terms of the number of words per sentence
+[char_per_tok]: average number of characters per word (excluded punctuation)
+
+>>> Lexical Variety:
+
+[ttr_lemma_chunks_100]: Type/Token Ratio (TTR) calculated with respect to the lemmata in first 100 tokens of a document. It ranges between 1 (high lexical variety) and 0 (low lexical variety).
+[ttr_lemma_chunks_200]: Type/Token Ratio (TTR) calculated with respect to the lemmata in first 200 tokens of a document. It ranges between 1 (high lexical variety) and 0 (low lexical variety).
+[ttr_form_chunks_100]: Type/Token Ratio (TTR) calculated with respect to the word forms in first 100 tokens of a document. It ranges between 1 (high lexical variety) and 0 (low lexical variety).
+[ttr_form_chunks_200]: Type/Token Ratio (TTR) calculated with respect to the word forms in first 200 tokens of a document. It ranges between 1 (high lexical variety) and 0 (low lexical variety).
+
+
+>>> Morphosyntactic information:
+
+[upos_dist_*]: distribution of the 17 core part-of-speech categories defined in the Universal POS tags, as detailed at the following link: https://universaldependencies.org/u/pos/index.html
+
+[lexical_density]: the value corresponds to the ratio between content words (nouns, proper nouns, verbs, adjectives, adverbs) over the total number of words in a document
+
+Inflectional morphology:
+
+[verbs_tense_dist_*]: distribution of verbs according to their tense: https://universaldependencies.org/u/feat/Tense.html
+[verbs_mood_dist_*]: distribution of verbs according to their moods: https://universaldependencies.org/u/feat/Mood.html
+[verbs_form_dist_*]: distribution of verbs according to their forms: https://universaldependencies.org/u/feat/VerbForm.html
+[verbs_gender_dist_*]: distribution of verbs according to the gender of participle forms, for the languages that have this features: https://universaldependencies.org/u/feat/Gender.html
+[verbs_num_pers_dist_*]:  distribution of verbs according to their number and person: https://universaldependencies.org/u/feat/Person.html
+
+>>> Syntactic features:
+
+Verbal Predicate Structure:
+
+[verbal_head_per_sent]: average distribution of verbal heads in the document, out ot the total of heads. 
+[verbal_root_perc]: average distribution of roots headed by a lemma tagged as verb, out of the total of sentence roots;
+[avg_verb_edges]: verbal arity, calculated as the average number of instantiated dependency links (covering both arguments and modifiers) sharing the same verbal head, excluding punctuation and auxiliaries bearing the syntactic role of copula according to the UD scheme
+[verb_edges_dist_*]: distribution of verbs for arity class (e.g. verbs with arity 1, 2, ...)
+
+Global and Local Parsed Tree Structures:
+
+[avg_max_depth]: mean of the maximum tree depths extracted from each sentence of a document. The maximum depth is calculated as the longest path (in terms of occurring dependency links) from the root of the dependency tree to some leaf.
+[avg_token_per_clause]: average clause length, calculated in terms of the average number of tokens per clause, where a clause is defined as the ratio between the number of tokens in a sentence and the number of either verbal or copular head.
+[avg_links_len]: average number of words occurring linearly between each syntactic head and its dependent (excluding punctuation dependencies).
+[avg_max_links_len]: mean of the longest dependency links extracted from each sentence of a document.
+[max_links_len]: the value of the longest dependency link in the document, calculated in number of tokens.
+[avg_prepositional_chain_len]: average value of prepositional 'chains' extracted for all sentences of document. A prepositional chain is calculated as the number of embedded prepositional complements dependent on a noun.
+[n_ prepositional_chains]: total number of prepositional 'chains' extracted for all sentences of document.
+[prep_dist_*]: distribution of prepositional chains by depth (e.g. chains 1-complement long, 2, ...)
+
+Order of elements:
+
+[obj_pre]: distribution of objects preceding the verb
+[obj_post]: distribution of objects following the verb
+[subj_pre]: distribution of subjects preceding the verb 
+[subj_post]: percentuale of sujects following the verb
+
+Syntactic Relations:
+
+[dep_dist_*]: average distribution of the 37 universal syntactic relations used in UD (https://universaldependencies.org/u/dep/index.html).
+
+
+Use of Subordination:
+
+[principal_proposition_dist]: distribution of principal clauses.
+[subordinate_proposition_dist]: distribution of subordinate clauses, as defined in the UD scheme: https://universaldependencies.org/u/overview/complex-syntax.html#subordination.
+[subordinate_post]: distribution of subordinate clauses following the main clause.
+[subordinate_pre]: distribution of subordinate clauses preceding the main clause.
+[avg_subordinate_chain_len]: average length of subordinate chains, where a subordinate 'chain' is calculated as the number of subordinate clauses embedded on a first subordinate clause.
+[subordinate_dist_*]: distribution of subordinate chains by depth.
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
