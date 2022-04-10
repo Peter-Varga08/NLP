@@ -11,12 +11,15 @@ Following, the instruction to run the scripts.
 ## Important: before running, upload the dataset folder here (IK_NLP_22_PESTYLE/)
 
 To train the model:
+
 `python3 training.py -r both -k 1 -f both`
 
 To perform Integrated Gradients:
+
 `python3 training.py -r ling -f ling`
 
 To evaluate the model on the test set:
+
 `python3 get_nn_predictions.py -r log -f log`
 
 `python3 evaluating.py -g gold_file_path -s pred_file_path`
