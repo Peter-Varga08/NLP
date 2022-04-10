@@ -18,6 +18,7 @@ To perform Integrated Gradients:
 
 To evaluate the model on the test set:
 `python3 get_nn_predictions.py -r log -f log`
+
 `python3 evaluating.py -g gold_file_path -s pred_file_path`
 
 The arguments are:
