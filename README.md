@@ -20,7 +20,7 @@ Since the data set is currently not yet publicly available, we do not provide it
 * __Statistical model__:
 
 
-* __Neural network__:
+* __Neural network__: see the readme file in the NeuralNetwork folder
 
 * __IT BERT__:
   * Fine-tuning a model:
