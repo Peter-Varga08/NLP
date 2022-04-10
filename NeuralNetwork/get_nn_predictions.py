@@ -27,6 +27,6 @@ print(columns)
 X_train, X_test = scaling(df_train, df_test)
 predictions = model.predict(X_test).argmax(axis=1) 
 
-with open(features + '/predictions.txt', 'w') as txt:
+with open(result_path + '/predictions.txt', 'w') as txt:
     for pred in predictions:
         txt.write(pred)
