@@ -3,11 +3,13 @@
 ## Description
 This repository contains the code used for the report *Comparing Statistical and Machine Learning Approaches to Identify Post-Editors from Logging and Linguistics Features: an Investigative Stylometry Study*. This report was written for the final project of the course *Natural Language Processing* at the University of Groningen.
 
-[Maybe something about the different models and how we divided these in several folders]
+The models are contained in the folders *IT_BERT, NeuralNetwork* and *Statistical_and_ML_models*. The linguistic features that we extracted are in *Linguistic_features*, accompanied by a legend with a more detailed description of the features. 
 
 #### Data
 
-[Provide information on the dataset here (e.g. why we do not include it in the repository and add an external link to the official page on HuggingFace]
+Since the data set is currently not yet publicly available, we do not provide it in this repository. Its full description can be found on its [Huggingface Dataset card](https://huggingface.co/datasets/GroNLP/ik-nlp-22_pestyle)
+
+
 ## Installation
 
 1. Install dependencies with `pip install -r requirements.txt`
