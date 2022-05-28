@@ -1,4 +1,10 @@
 from datasets import load_dataset, list_metrics, load_metric
+from typing import Union, List, Tuple
+import argparse
+from util import LingFeatDF
+import os
+import logging
+import random
 import pandas as pd
 import numpy as np
 from matplotlib import pyplot as plt
@@ -9,11 +15,6 @@ from sklearn.ensemble import RandomForestClassifier
 from sklearn.linear_model import LinearRegression, Ridge
 from sklearn.model_selection import GridSearchCV
 from sklearn.metrics import accuracy_score
-
-from typing import Union, List, Tuple
-import argparse
-import os
-import logging
 
 
 def select_columns(dataframe: pd.DataFrame, dtype_include: list, name_exclude: list) -> pd.DataFrame:
@@ -105,22 +106,41 @@ def intersection(lst1: list, lst2: list) -> list:
     return list(set(lst1) & set(lst2))
 
 
-def filter_linguistic_columns(train_mt, train_tgt, test_mt, test_tgt):
+def intersect_linguistic_columns(train_mt: pd.DataFrame, train_tgt: pd.DataFrame,
+                                 test_mt: pd.DataFrame, test_tgt: pd.DataFrame) -> list:
+    """ Merge columns of the extracted linguistic feature dataframes, after having used the linguistic tool API. """
+
     all_columns = [list(train_mt.columns), list(train_tgt.columns), list(test_mt.columns), list(test_tgt.columns)]
-    merged_columns = list(train_mt.columns)
+    # initiate intersected columns with an arbitrary dataframes' columns
+    intersected_columns = random.choice(all_columns)
     for cols in all_columns:
-        merged_columns = intersection(merged_columns, cols)
-    train_mt = train_mt[[col for col in train_mt.columns if col in merged_columns]]
-    train_tgt = train_tgt[[col for col in train_tgt.columns if col in merged_columns]]
-    test_mt = test_mt[[col for col in test_mt.columns if col in merged_columns]]
-    test_tgt = test_tgt[[col for col in test_tgt.columns if col in merged_columns]]
+        intersected_columns = intersection(intersected_columns, cols)
+    return intersected_columns
 
-    assert len(train_mt.columns) == len(train_tgt.columns) == len(test_mt.columns) == len(test_tgt.columns)
 
-    X_train_ling = train_tgt.subtract(train_mt)
-    X_test_ling = test_tgt.subtract(test_mt)
+def filter_linguistic_columns(df_ling: pd.DataFrame, intersected_columns: list) -> pd.DataFrame:
+    """Return only columns of the linguistic dataframe that are found within the 'intersected_columns' list."""
+    if len(intersection(list(df_ling.columns), intersected_columns)) < len(intersected_columns):
+        raise ValueError("Unfiltered linguistic dataframe has missing columns. Dataframe columns must include at least "
+                         "all elements of 'intersected_columns' argument.")
+    df_ling = df_ling[[intersected_columns]]
+    return df_ling
 
-    return X_train_ling, X_test_ling
+
+def subtract_df(df_mt: LingFeatDF, df_tgt: LingFeatDF) -> pd.DataFrame:
+    """Subtract machine-translated dataframe of linguistic features from post-edited dataframe of linguistic features."""
+    if isinstance(df_mt, LingFeatDF) and isinstance(df_tgt, LingFeatDF):
+        if df_mt.name.split('_')[0] != df_tgt.name.split('_')[0]:
+            raise ValueError(
+                "Wrong values of LingFeatDF have been given, 'name' attribute must have identical beginning"
+            )
+        if not df_mt.name.endswith('mt') and not df_tgt.name.endswith('tgt'):
+            raise SyntaxError("Dataframes have been given in the wrong order. 'mt' is required to be first.")
+    else:
+        raise TypeError("Subtraction of DataFrames only possible between LingFeatDF namedtuples.")
+    df_sub = df_tgt.df.subtract(df_mt.df)
+    return df_sub
+
 
 # TODO: Get feature names and fix the top20 feature selection
 def get_feature_importances(rf_model: RandomForestClassifier):
@@ -130,7 +150,7 @@ def get_feature_importances(rf_model: RandomForestClassifier):
     return forest_importances, std
 
 
-def save_feature_importance_plots(forest_importances: pd.Series, std: float, experiment_type: str):
+def save_feature_importance_plots(forest_importances: pd.Series, std: float, experiment_type: str) -> None:
     fig, ax = plt.subplots()
     # fig.tight_layout(h_pad=10)
     forest_importances.plot.barh(yerr=std, ax=ax)
@@ -140,7 +160,7 @@ def save_feature_importance_plots(forest_importances: pd.Series, std: float, exp
     fig.savefig(f"../images/RandomForest_{experiment_type}_importances.jpg")
 
 
-def run_test(model, X_train, y_train, X_test, experiment_type: str):
+def run_test(model, X_train, y_train, X_test, experiment_type: str) -> None:
     model_fit = model.fit(X_train, y_train)
     if model._estimator_type == 'regressor':
         predictions = transform_predictions(threshold_regression_prediction(model_fit.predict(X_test)))
@@ -158,7 +178,7 @@ def transform_predictions(predictions: np.array) -> str:
 
 
 def output_test_predictions(model: Union[LinearRegression, RandomForestClassifier],
-                            predictions: Union[np.array, list], experiment_type: str) -> np.array:
+                            predictions: Union[np.array, list], experiment_type: str) -> None:
     """Generate txt file that contains all the predictions in a sequence within a single row."""
     with open(f"predictions/{model._estimator_type}_{experiment_type}_predictions.txt", 'w') as f:
         f.write(predictions)
@@ -208,17 +228,24 @@ if __name__ == "__main__":
     X_train_numeric = select_columns(df_train, dtype_include=['float32', 'int32'], name_exclude=['item_id'])
     X_test_numeric = select_columns(df_test, dtype_include=['float32', 'int32'], name_exclude=['item_id'])
     # Linguistic features
-    logger.info("Loading linguistic features")
-    lingfeat_train_mt = pd.read_csv('../Linguistic_features/train_mt.csv', sep="\t").drop(
-        columns=['Filename'])
-    lingfeat_test_mt = pd.read_csv('../Linguistic_features/test_mt.csv', sep='\t').drop(
-        columns=['Filename'])
-    lingfeat_train_tgt = pd.read_csv('../Linguistic_features/train_tgt.csv', sep="\t").drop(
-        columns=['Filename'])
-    lingfeat_test_tgt = pd.read_csv('../Linguistic_features/test_tgt.csv', sep="\t").drop(
-        columns=['Filename'])
-    X_train_ling, X_test_ling = filter_linguistic_columns(lingfeat_train_mt, lingfeat_train_tgt,
-                                                          lingfeat_test_mt, lingfeat_test_tgt)
+    logger.info("Loading linguistic features...")
+
+    lingfeat = [
+        LingFeatDF(pd.read_csv('../Linguistic_features/train_mt.csv', sep="\t").drop(columns=['Filename']), 'train_mt'),
+        LingFeatDF(pd.read_csv('../Linguistic_features/test_mt.csv', sep='\t').drop(columns=['Filename']), 'test_mt'),
+        LingFeatDF(pd.read_csv('../Linguistic_features/train_tgt.csv', sep="\t").drop(columns=['Filename']),
+                   'train_tgt'),
+        LingFeatDF(pd.read_csv('../Linguistic_features/test_tgt.csv', sep="\t").drop(columns=['Filename']), 'test_tgt')
+    ]
+    intersected_linguistic_columns = intersect_linguistic_columns(*[nt.df for nt in lingfeat])
+    col_lens = []
+    for idx, nt in enumerate(lingfeat):
+        lingfeat[idx] = filter_linguistic_columns(nt.df, intersected_linguistic_columns)
+        col_lens.append(lingfeat[idx].df.columns)
+    assert len(set(col_lens)) == 1, "Number of columns have to be equal for all linguistic feature dataframes."
+
+    X_train_ling = subtract_df(lingfeat[0], lingfeat[2])
+    X_test_ling = subtract_df(lingfeat[1], lingfeat[3])
     # Combined features
     X_train_combined = pd.concat([X_train_numeric.reset_index(drop=True), X_train_ling.reset_index(drop=True)], axis=1)
     X_test_combined = pd.concat([X_test_numeric.reset_index(drop=True), X_test_ling.reset_index(drop=True)], axis=1)
