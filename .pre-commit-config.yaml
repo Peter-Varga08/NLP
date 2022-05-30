@@ -1,9 +1,31 @@
 repos:
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v4.2.0
+    hooks:
+      - id: check-added-large-files
+        name: check-added-large-files
+
+      - id: check-case-conflict
+        name: check-case-conflict
+
+      - id: end-of-file-fixer
+        name: end-of-file-fixer
+
+      - id: pretty-format-json
+        name: pretty-format-json
+
+  - repo: https://github.com/pre-commit/mirrors-autopep8
+    rev: v1.6.0
+    hooks:
+      - id: autopep8
+        name: autopep8
+
   - repo: https://github.com/PyCQA/isort
     rev: 5.10.1
     hooks:
       - id: isort
         name: isort_module_import_formatter
+
   - repo: https://github.com/PyCQA/flake8
     rev: 4.0.1
     hooks:

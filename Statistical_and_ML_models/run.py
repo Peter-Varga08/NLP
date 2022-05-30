@@ -232,7 +232,7 @@ if __name__ == "__main__":
         LingFeatDF(pd.read_csv('../Linguistic_features/test_mt.csv', sep='\t').drop(columns=['Filename']), 'test_mt'),
         LingFeatDF(pd.read_csv('../Linguistic_features/train_tgt.csv', sep="\t").drop(columns=['Filename']),
                    'train_tgt'),
-        LingFeatDF(pd.read_csv('../Linguistic_features/test_tgt.csv', sep="\t").drop(columns=['Filename']), 'test_tgt')
+        LingFeatDF(pd.read_csv('../Linguistic_features/test_tgt.csv', sep="\t").drop(columns=['Filename']), 'test_tgt'),
     ]
     intersected_linguistic_columns = intersect_linguistic_columns(*[nt.df for nt in lingfeat])
     col_lens = []

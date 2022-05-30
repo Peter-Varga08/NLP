@@ -2,3 +2,17 @@
 max_line_length = 120
 statistics = True
 exclude = .flake8, *.yaml
+count = True
+show_source = False
+spellcheck-targets = comments
+
+inline-quotes = '
+multiline-quotes = """
+docstring-quotes = """
+
+ignore = Q000
+
+[pep8]
+max_line_length = 120
+in-place = True
+list-fixes = True
