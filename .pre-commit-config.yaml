@@ -1,0 +1,8 @@
+repos:
+  - repo: local
+    hooks:
+      - id: flake8
+        name: flake8_linter
+        entry: flake8 ./Statistical_and_ML_models
+        always_run: true
+        language: python

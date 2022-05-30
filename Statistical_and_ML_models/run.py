@@ -1,8 +1,7 @@
-from datasets import load_dataset, list_metrics, load_metric
+from datasets import load_dataset
 from typing import Union, List, Tuple
 import argparse
 from util import LingFeatDF
-import os
 import logging
 import random
 import pandas as pd
@@ -12,8 +11,7 @@ from sklearn.preprocessing import LabelBinarizer, StandardScaler
 from sklearn.model_selection import StratifiedKFold
 from sklearn.feature_selection import SelectKBest, chi2
 from sklearn.ensemble import RandomForestClassifier
-from sklearn.linear_model import LinearRegression, Ridge
-from sklearn.model_selection import GridSearchCV
+from sklearn.linear_model import LinearRegression
 from sklearn.metrics import accuracy_score
 
 
@@ -25,7 +23,7 @@ def select_columns(dataframe: pd.DataFrame, dtype_include: list, name_exclude: l
     return df_selected
 
 
-def threshold_regression_prediction(predictions: np.array) -> np.array:
+def threshold_regression_prediction(predictions: np.ndarray) -> np.ndarray:
     """Converts softmax regression values within a vector to one-hot encoding, based on argmax."""
     preds_one_hot = []
     for vector in predictions:
@@ -37,12 +35,12 @@ def threshold_regression_prediction(predictions: np.array) -> np.array:
             else:
                 tmp.append(0)
         preds_one_hot.append(tmp)
-    preds_one_hot = np.array(preds_one_hot)
+    preds_one_hot = np.asarray(preds_one_hot)
     return preds_one_hot
 
 
 def do_kfold_scoring(model: Union[LinearRegression, RandomForestClassifier],
-                     X: pd.DataFrame, y: np.array, selector: SelectKBest = None, scaling=True) -> None:
+                     X: pd.DataFrame, y: np.ndarray, selector: SelectKBest = None, scaling=True) -> None:
     """Performs a k-fold CV with given model on the supplied dataset"""
     if selector:
         X = selector.transform(X)
@@ -53,33 +51,36 @@ def do_kfold_scoring(model: Union[LinearRegression, RandomForestClassifier],
     if scaling:
         X = StandardScaler().fit_transform(X)
 
-    scores_train = []
-    scores_valid = []
+    scores_train: List[float] = []
+    scores_valid: List[float] = []
     skf = StratifiedKFold(n_splits=10, random_state=42, shuffle=True)
     for train_index, valid_index in skf.split(X, y):
         X_train, X_valid = X[train_index], X[valid_index]
         y_train, y_valid = label_encoder.transform(y[train_index]), label_encoder.transform(y[valid_index])
-        model_fit = model.fit(X_train, y_train)
+        model.fit(X_train, y_train)
         if model._estimator_type == 'regressor':
-            scores_train.append(accuracy_score(threshold_regression_prediction(model_fit.predict(X_train)), y_train))
-            scores_valid.append(accuracy_score(threshold_regression_prediction(model_fit.predict(X_valid)), y_valid))
+            scores_train.append(accuracy_score(threshold_regression_prediction(model.predict(X_train)), y_train))
+            scores_valid.append(accuracy_score(threshold_regression_prediction(model.predict(X_valid)), y_valid))
         else:
-            scores_train.append(model_fit.score(X_train, y_train))
-            scores_valid.append(model_fit.score(X_valid, y_valid))
-    print("Average train score:", round(np.mean(scores_train), 4))
+            scores_train.append(model.score(X_train, y_train))
+            scores_valid.append(model.score(X_valid, y_valid))
+    print("Average train score:", round(float(np.mean(scores_train)), 4))
     print("Average validation score:", round(np.mean(scores_valid), 4))
     print("Standard deviation of validation:", round(np.std(scores_valid), 4))
 
 
 def get_features_sorted(selector: SelectKBest) -> List[Tuple[str, float]]:
-    """Returns a list of tuples, containing the name of the features and their relevance according to a KBest selector"""
+    """
+    Returns a list of tuples, containing the name of the features
+    and their relevance according to a KBest selector
+    """
     features_sorted = sorted(zip(list(selector.get_feature_names_out()), list(selector.scores_)),
                              key=lambda x: x[1], reverse=True)
     return features_sorted
 
 
 def run_numeric_data_experiments(model: Union[LinearRegression, RandomForestClassifier],
-                                 X_train_numeric: np.array, y: np.array, scaling=False) -> None:
+                                 X_train_numeric: pd.DataFrame, y: np.ndarray, scaling=False) -> None:
     """Runs three type of experiments: [Using KBest features, using Keystroke features, using post-edit features]"""
 
     print(f"{'-' * 50}\n\n\nPERFORMING EXPERIMENTS WITH [{model}]...\n{'-' * 50}")
@@ -128,11 +129,11 @@ def filter_linguistic_columns(df_ling: pd.DataFrame, intersected_columns: list) 
 
 
 def subtract_df(df_mt: LingFeatDF, df_tgt: LingFeatDF) -> pd.DataFrame:
-    """Subtract machine-translated dataframe of linguistic features from post-edited dataframe of linguistic features."""
+    """Subtract machine-translated dataframe of ling features from post-edited dataframe of ling features."""
     if isinstance(df_mt, LingFeatDF) and isinstance(df_tgt, LingFeatDF):
         if df_mt.name.split('_')[0] != df_tgt.name.split('_')[0]:
-            raise ValueError(
-                "Wrong values of LingFeatDF have been given, 'name' attribute must have identical beginning"
+            raise SyntaxError(
+                "Wrong values of LingFeatDF have been given, 'name' attributes must have identical beginning."
             )
         if not df_mt.name.endswith('mt') and not df_tgt.name.endswith('tgt'):
             raise SyntaxError("Dataframes have been given in the wrong order. 'mt' is required to be first.")
@@ -169,7 +170,7 @@ def run_test(model, X_train, y_train, X_test, experiment_type: str) -> None:
     output_test_predictions(model_fit, predictions, experiment_type)
 
 
-def transform_predictions(predictions: np.array) -> str:
+def transform_predictions(predictions: np.ndarray) -> str:
     """Transforms one-hot encoded labels into integer labels"""
     transformed_predictions = []
     for vector in predictions:
@@ -193,8 +194,8 @@ if __name__ == "__main__":
                         choices=['numeric', 'linguistic', 'combined'],
                         help='Type of experiment to run, w.r.t. the features being used.')
     parser.add_argument('-m', '--model_type', type=str, default=None, required=True, choices=['lr', 'rf'],
-                        help="The type of sklearn model to run the experiments with. Can either be LinearRegression (lr)" \
-                             "or RandomForestClassifier (rf)")
+                        help="The type of sklearn model to run the experiments with."
+                             " Can either be LinearRegression (lr) or RandomForestClassifier (rf)")
     parser.add_argument('-s', '--scaling', action='store_true', help='Whether to use scaling on features or not.')
     parser.add_argument('-v', '--verbose', action='store_true', help='Whether to enable or disable logging.')
     parser.add_argument('-t', '--test', action='store_true', help='Whether to run tests or not.')
@@ -209,10 +210,10 @@ if __name__ == "__main__":
     # |     Load datasets       |
     # |-------------------------|
     logger.info("Loading datasets...")
-    df_train = load_dataset("GroNLP/ik-nlp-22_pestyle", "full",
-                            data_dir='../IK_NLP_22_PESTYLE')['train'].to_pandas()
-    df_test = load_dataset("GroNLP/ik-nlp-22_pestyle", "mask_subject",
-                           data_dir='../IK_NLP_22_PESTYLE')['test'].to_pandas()
+    df_train: pd.DataFrame = load_dataset("GroNLP/ik-nlp-22_pestyle", "full",
+                                          data_dir='../IK_NLP_22_PESTYLE')['train'].to_pandas()
+    df_test: pd.DataFrame = load_dataset("GroNLP/ik-nlp-22_pestyle", "mask_subject",
+                                         data_dir='../IK_NLP_22_PESTYLE')['test'].to_pandas()
     df_train = df_train[df_train.modality != 'ht']
     df_test = df_test[df_test.modality != 'ht']
     y_train = np.array(df_train.subject_id)
