@@ -1,8 +1,13 @@
 repos:
-  - repo: local
+  - repo: https://github.com/PyCQA/isort
+    rev: 5.10.1
+    hooks:
+      - id: isort
+        name: isort_module_import_formatter
+  - repo: https://github.com/PyCQA/flake8
+    rev: 4.0.1
     hooks:
       - id: flake8
         name: flake8_linter
-        entry: flake8 ./Statistical_and_ML_models
         always_run: true
         language: python

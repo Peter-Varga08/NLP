@@ -1,30 +1,32 @@
-from datasets import load_dataset
-from typing import Union, List, Tuple
+"""Script to run Statistical and ML model experiments."""
+
 import argparse
-from util import LingFeatDF
 import logging
 import random
-import pandas as pd
+from typing import List, Tuple, Union
+
 import numpy as np
+import pandas as pd
+from datasets import load_dataset
 from matplotlib import pyplot as plt
-from sklearn.preprocessing import LabelBinarizer, StandardScaler
-from sklearn.model_selection import StratifiedKFold
-from sklearn.feature_selection import SelectKBest, chi2
 from sklearn.ensemble import RandomForestClassifier
+from sklearn.feature_selection import SelectKBest, chi2
 from sklearn.linear_model import LinearRegression
 from sklearn.metrics import accuracy_score
+from sklearn.model_selection import StratifiedKFold
+from sklearn.preprocessing import LabelBinarizer, StandardScaler
+from util import LingFeatDF
 
 
 def select_columns(dataframe: pd.DataFrame, dtype_include: list, name_exclude: list) -> pd.DataFrame:
-    """Return a dataframe with only those columns that have a certain datatype and are not in a list of undesired
-    columns."""
-    df_selected = dataframe[
-        [col for col in dataframe.columns if dataframe[col].dtype in dtype_include and col not in name_exclude]]
-    return df_selected
+    """Return df with only those columns that have a certain datatype and are not in a list of undesired columns."""
+    return dataframe[
+        [col for col in dataframe.columns if dataframe[col].dtype in dtype_include and col not in name_exclude]
+    ]
 
 
 def threshold_regression_prediction(predictions: np.ndarray) -> np.ndarray:
-    """Converts softmax regression values within a vector to one-hot encoding, based on argmax."""
+    """Convert softmax regression values within a vector to one-hot encoding, based on argmax."""
     preds_one_hot = []
     for vector in predictions:
         argmax = np.argmax(vector)
@@ -35,13 +37,12 @@ def threshold_regression_prediction(predictions: np.ndarray) -> np.ndarray:
             else:
                 tmp.append(0)
         preds_one_hot.append(tmp)
-    preds_one_hot = np.asarray(preds_one_hot)
-    return preds_one_hot
+    return np.asarray(preds_one_hot)
 
 
 def do_kfold_scoring(model: Union[LinearRegression, RandomForestClassifier],
                      X: pd.DataFrame, y: np.ndarray, selector: SelectKBest = None, scaling=True) -> None:
-    """Performs a k-fold CV with given model on the supplied dataset"""
+    """Perform a k-fold CV with given model on the supplied dataset."""
     if selector:
         X = selector.transform(X)
     else:
@@ -70,19 +71,14 @@ def do_kfold_scoring(model: Union[LinearRegression, RandomForestClassifier],
 
 
 def get_features_sorted(selector: SelectKBest) -> List[Tuple[str, float]]:
-    """
-    Returns a list of tuples, containing the name of the features
-    and their relevance according to a KBest selector
-    """
-    features_sorted = sorted(zip(list(selector.get_feature_names_out()), list(selector.scores_)),
-                             key=lambda x: x[1], reverse=True)
-    return features_sorted
+    """Return sorted features and their relevance according to a KBest selector."""
+    return sorted(zip(list(selector.get_feature_names_out()), list(selector.scores_)),
+                  key=lambda x: x[1], reverse=True)
 
 
 def run_numeric_data_experiments(model: Union[LinearRegression, RandomForestClassifier],
                                  X_train_numeric: pd.DataFrame, y: np.ndarray, scaling=False) -> None:
-    """Runs three type of experiments: [Using KBest features, using Keystroke features, using post-edit features]"""
-
+    """Run three type of experiments: [Using KBest features, using Keystroke features, using post-edit features]."""
     print(f"{'-' * 50}\n\n\nPERFORMING EXPERIMENTS WITH [{model}]...\n{'-' * 50}")
     # Train and validate on TOP 100%, 75%, 50% and 25% features of the data
     for ratio in [1, 0.75, 0.5, 0.25]:
@@ -103,14 +99,13 @@ def run_numeric_data_experiments(model: Union[LinearRegression, RandomForestClas
 
 
 def intersection(lst1: list, lst2: list) -> list:
-    """Used for removing features that are not present in all dataframes"""
+    """Remove features that are not present in all dataframes."""
     return list(set(lst1) & set(lst2))
 
 
 def intersect_linguistic_columns(train_mt: pd.DataFrame, train_tgt: pd.DataFrame,
                                  test_mt: pd.DataFrame, test_tgt: pd.DataFrame) -> list:
-    """ Merge columns of the extracted linguistic feature dataframes, after having used the linguistic tool API. """
-
+    """Merge columns of the extracted linguistic feature dataframes, after having used the linguistic tool API."""
     all_columns = [list(train_mt.columns), list(train_tgt.columns), list(test_mt.columns), list(test_tgt.columns)]
     # initiate intersected columns with an arbitrary dataframes' columns
     intersected_columns = random.choice(all_columns)
@@ -124,8 +119,7 @@ def filter_linguistic_columns(df_ling: pd.DataFrame, intersected_columns: list) 
     if len(intersection(list(df_ling.columns), intersected_columns)) < len(intersected_columns):
         raise ValueError("Unfiltered linguistic dataframe has missing columns. Dataframe columns must include at least "
                          "all elements of 'intersected_columns' argument.")
-    df_ling = df_ling[[intersected_columns]]
-    return df_ling
+    return df_ling[[intersected_columns]]
 
 
 def subtract_df(df_mt: LingFeatDF, df_tgt: LingFeatDF) -> pd.DataFrame:
@@ -139,12 +133,12 @@ def subtract_df(df_mt: LingFeatDF, df_tgt: LingFeatDF) -> pd.DataFrame:
             raise SyntaxError("Dataframes have been given in the wrong order. 'mt' is required to be first.")
     else:
         raise TypeError("Subtraction of DataFrames only possible between LingFeatDF namedtuples.")
-    df_sub = df_tgt.df.subtract(df_mt.df)
-    return df_sub
+    return df_tgt.df.subtract(df_mt.df)
 
 
 # TODO: Get feature names and fix the top20 feature selection
 def get_feature_importances(rf_model: RandomForestClassifier):
+    """Retrieve sorted feature importances of RandomForestClassifier."""
     importances = sorted(rf_model.feature_importances_, reverse=True)
     std = np.std([tree.feature_importances_ for tree in rf_model.estimators_], axis=0)[0:20]
     forest_importances = pd.Series(importances).iloc[0:20]
@@ -152,6 +146,7 @@ def get_feature_importances(rf_model: RandomForestClassifier):
 
 
 def save_feature_importance_plots(forest_importances: pd.Series, std: float, experiment_type: str) -> None:
+    """Plot and save feature importances of RandomForest model."""
     fig, ax = plt.subplots()
     # fig.tight_layout(h_pad=10)
     forest_importances.plot.barh(yerr=std, ax=ax)
@@ -162,6 +157,7 @@ def save_feature_importance_plots(forest_importances: pd.Series, std: float, exp
 
 
 def run_test(model, X_train, y_train, X_test, experiment_type: str) -> None:
+    """Run model on test set and obtain predictions, but train the model first."""
     model_fit = model.fit(X_train, y_train)
     if model._estimator_type == 'regressor':
         predictions = transform_predictions(threshold_regression_prediction(model_fit.predict(X_test)))
@@ -171,7 +167,7 @@ def run_test(model, X_train, y_train, X_test, experiment_type: str) -> None:
 
 
 def transform_predictions(predictions: np.ndarray) -> str:
-    """Transforms one-hot encoded labels into integer labels"""
+    """Transform one-hot encoded labels into integer labels."""
     transformed_predictions = []
     for vector in predictions:
         transformed_predictions.append(str(np.argmax(vector)))
