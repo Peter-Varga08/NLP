@@ -6,7 +6,6 @@ count = True
 show_source = False
 spellcheck-targets = comments
 
-inline-quotes = '
 multiline-quotes = """
 docstring-quotes = """
 
@@ -16,3 +15,5 @@ ignore = Q000
 max_line_length = 120
 in-place = True
 list-fixes = True
+# TODO: check why 'aggressive' argument throws errors - without this the level of forced changes can't be set
+# aggressive = True

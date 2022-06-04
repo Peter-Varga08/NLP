@@ -11,25 +11,25 @@ repos:
       - id: end-of-file-fixer
         name: end-of-file-fixer
 
-      - id: pretty-format-json
-        name: pretty-format-json
+      - id: requirements-txt-fixer
+        name: requirements-txt-sorter
 
-  - repo: https://github.com/pre-commit/mirrors-autopep8
-    rev: v1.6.0
-    hooks:
-      - id: autopep8
-        name: autopep8
-
-  - repo: https://github.com/PyCQA/isort
-    rev: 5.10.1
-    hooks:
-      - id: isort
-        name: isort_module_import_formatter
-
-  - repo: https://github.com/PyCQA/flake8
-    rev: 4.0.1
-    hooks:
-      - id: flake8
-        name: flake8_linter
-        always_run: true
-        language: python
+#  - repo: https://github.com/pre-commit/mirrors-autopep8
+#    rev: v1.6.0
+#    hooks:
+#      - id: autopep8
+#        name: autopep8_code_formatter
+#
+#  - repo: https://github.com/PyCQA/isort
+#    rev: 5.10.1
+#    hooks:
+#      - id: isort
+#        name: isort_module_import_formatter
+#
+#  - repo: https://github.com/PyCQA/flake8
+#    rev: 4.0.1
+#    hooks:
+#      - id: flake8
+#        name: flake8_linter
+#        always_run: true
+#        language: python
