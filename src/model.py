@@ -1,23 +1,36 @@
 import argparse
-from typing import List
+from typing import List, Dict, Any
 
 import numpy as np
 import pandas as pd
 import tensorflow as tf
-from imblearn.over_sampling import BorderlineSMOTE
-from matplotlib import pyplot as plt
-from seqeval.metrics import classification_report
 from simpletransformers.classification import ClassificationModel
 from simpletransformers.config.model_args import ClassificationArgs
-from sklearn.model_selection import train_test_split
 from tensorflow.keras.layers import BatchNormalization, Dense, Dropout, Input
 
-import utils_pipeline
 
+#TODO: Finish
+class RegressionModel:
+    if args.model == 'lr':
+        model = LinearRegression(normalize=args.normalize,
+                                 n_jobs=args.n_jobs)
+    elif args.model == 'rr':
+        model = Ridge(normalize=args.normalize,
+                      alpha=args.alpha,
+                      solver=args.solver)
+    else:
+        model = ElasticNet(normalize=args.normalize,
+                           l1_ratio=args.l1_ratio,
+                           precompute=True,
+                           max_iter=args.max_iter,
+                           tol=args.tol,
+                           selection=args.selection)
 
 class NeuralNetwork:
-    def __init__(self, args: argparse.Namespace, layers=[512, 256]):
-        self.args = args
+    def __init__(self, input_len: int = None, lr: float = None, clipvalue: float = None, layers=(512, 256)):
+        self.lr = lr
+        self.clipvalue = clipvalue
+        self.input_len = input_len
         self.layers = layers
 
         self.input_layer = Input(shape=(self.input_len,))
@@ -29,9 +42,11 @@ class NeuralNetwork:
             self.dense = BatchNormalization()(self.dense)
             self.dense = Dropout(0.1)(self.dense)
         self.output_layer = Dense(3, activation="softmax")(self.dense)
+
         self.model = self.model()
         self.summary = self.summary()
         self.compile_model()
+        self.train_history: Dict[str, np.ndarray] = {}
 
     @property
     def model(self):
@@ -51,14 +66,23 @@ class NeuralNetwork:
 
     def compile_model(self) -> None:
         self._model.compile(
-            optimizer=tf.keras.optimizers.Adam(learning_rate=self.args.lr, clipvalue=self.args.clipvalue),
+            optimizer=tf.keras.optimizers.Adam(learning_rate=self.lr, clipvalue=self.clipvalue),
             loss=tf.keras.losses.CategoricalCrossentropy(),
             metrics=["accuracy"],
         )
 
-    @classmethod
-    def get_tf_dataset(cls):
-        pass
+    @staticmethod
+    def get_tf_dataset(X, Y):
+        def gen():
+            for x, y in zip(X, Y):
+                yield x, y
+
+        dataset = tf.data.Dataset.from_generator(
+            gen,
+            (tf.float32, tf.int64),
+            (tf.TensorShape([None]), tf.TensorShape([None])),
+        )
+        return dataset
 
     def get_early_stopping(self):
         return tf.keras.callbacks.EarlyStopping(monitor='val_accuracy',
@@ -69,102 +93,29 @@ class NeuralNetwork:
                                                 baseline=None,
                                                 restore_best_weights=True)
 
-    def fit(self, X_train, y_train) -> None:
-        X_train = NeuralNetwork.get_tf_dataset(X_train, y_train).shuffle(500).batch(self.args.batch_size)
-        self.model.fit(train_set,
-                       validation_data=valid_set,
-                       epochs=1000,
-                       callbacks=[self.get_early_stopping()])
-        return ...
+    # TODO: How to use X_valid and y_valid without passing them
+    def fit(self, X_train, y_train, X_valid, y_valid) -> None:
+        X_y_train = NeuralNetwork.get_tf_dataset(X_train, y_train).shuffle(500).batch(self.args.batch_size)
 
-    def predict(self, X_valid) -> None:
-        X_valid = utils_pipeline.get_tf_dataset(X_valid, y_valid).batch(args.batch_size)
+        X_y_valid = NeuralNetwork.get_tf_dataset(X_valid, y_valid).shuffle(500).batch(self.args.batch_size)
+        self.train_history = self.model.fit(X_y_train,
+                                            validation_data=X_y_valid,
+                                            epochs=1000,
+                                            callbacks=[self.get_early_stopping()]).history
+
+    def predict(self, X_valid: np.ndarray) -> np.ndarray:
         return self.model.predict(X_valid)
 
-    def evaluate(self, X_valid, y_valid):
-        X_valid = utils_pipeline.get_tf_dataset(X_valid, y_valid).batch(args.batch_size)
-        self.model.evaluate(X_valid, y_valid)
-
-    # TODO
-    def do_kfold_scoring(self, X: pd.DataFrame = None, y: np.ndarray = None, label_encoder=label_encoder,
-                         input_len=input_len, layers=[512, 256], LR=1e-3, K=10, batch_size=16, oversampling=False):
-        """Performs a k-fold CV with given model on the supplied dataset"""
-        X = X.to_numpy()
-        kfolds = utils_pipeline.get_Kfolds(X, y, K)
-        scores_valid = []
-        i = 0
-        early_stop = NeuralNetwork.get_early_stopping()
-        for train_index, valid_index in kfolds:
-            X_train, X_valid = X[train_index], X[valid_index]
-            y_train, y_valid = label_encoder.transform(y[train_index]), label_encoder.transform(y[valid_index])
-            X_train, X_valid = utils_pipeline.scaling(X_train, X_valid)
-
-            model = NeuralNetwork(input_len, layers=layers, LR=LR)
-            history = model.fit(train_set,
-                                validation_data=valid_set,
-                                epochs=1000,
-                                callbacks=[early_stop])
-            plt.figure(figsize=(20, 20))
-            plt.plot(history.history['loss'])
-            plt.plot(history.history['val_loss'])
-            plt.savefig(result_path + '/loss_%s.png' % i)
-            plt.figure(figsize=(20, 20))
-            plt.plot(history.history['accuracy'])
-            plt.plot(history.history['val_accuracy'])
-            plt.savefig(result_path + '/acc_%s.png' % i)
-
-            preds = model.predict(X_valid)
-            print(
-                classification_report([np.argmax(gt) for gt in y_valid],
-                                      [np.argmax(yp) for yp in preds]))
-            abc = model.evaluate(X_valid, y_valid)
-
-
-    # TODO
-    def do_single(self, X, y, label_encoder, input_len, layers=[512, 256], LR=1e-3, batch_size=16, oversampling=False,
-                  result_path='./w/best', patience=100):
-        X = X.to_numpy()
-        X_train, X_valid, y_train, y_valid = train_test_split(X,
-                                                              y,
-                                                              test_size=0.1,
-                                                              random_state=42)
-        y_train, y_valid = label_encoder.transform(
-            y_train), label_encoder.transform(y_valid)
-        X_train, X_valid = utils_pipeline.scaling(X_train, X_valid)
-        if oversampling:
-            bsmote = BorderlineSMOTE(random_state=101, kind='borderline-1')
-            X_train, y_train = bsmote.fit_resample(X_train, y_train)
-        train_set = utils_pipeline.get_tf_dataset(X_train, y_train).shuffle(500).batch(batch_size)
-        valid_set = utils_pipeline.get_tf_dataset(X_valid, y_valid).batch(batch_size)
-        model = NeuralNetwork(input_len, layers=layers, LR=LR)
-        early_stop = NeuralNetwork.get_early_stopping(patience=patience)
-        history = model.fit(train_set,
-                            validation_data=valid_set,
-                            epochs=1000,
-                            callbacks=[early_stop])
-        model.save(result_path + '/best')
-        plt.figure(figsize=(20, 20))
-        plt.plot(history.history['loss'])
-        plt.plot(history.history['val_loss'])
-        plt.savefig(result_path + '/loss.png')
-        plt.figure(figsize=(20, 20))
-        plt.plot(history.history['accuracy'])
-        plt.plot(history.history['val_accuracy'])
-        plt.savefig(result_path + '/acc.png')
-        preds = model.predict(X_valid)
-        print(classification_report([np.argmax(gt) for gt in y_valid],
-                                    [np.argmax(yp) for yp in preds]))
-        abc = model.evaluate(X_valid, y_valid)
-        print("Results in terms of val_loss and val_accuracy:", abc)
-        return abc
+    def evaluate(self, X_valid: np.ndarray, y_valid: np.ndarray) -> Any:
+        return self.model.evaluate(X_valid, y_valid)
 
 
 # TODO
 class ClassificationTransformer(ClassificationModel):
-    def __init__(self, base_args: argparse.Namespace, model_args: ClassificationArgs) -> None:
-        self.base_args = base_args
+    def __init__(self, bert_config: str, model_args: ClassificationArgs) -> None:
+        self.bert_config = bert_config
         self.model_args = model_args
-        super().__init__(self, "bert", self.base_args.bert_config, self.model_args, use_cuda=False, num_labels=3)
+        super().__init__(self, "bert", self.bert_config, self.model_args, use_cuda=False, num_labels=3)
 
     @staticmethod
     def get_accuracy(gold: str, pred):

@@ -17,3 +17,9 @@ class ConfigMode(StrEnum):
     MASK_SUBJECT = 'mask_subject'
     MASK_MODALITY = 'mask_modality'
     MASK_TIME = 'mask_time'
+
+
+class DatasetType(StrEnum):
+    LOGGING = 'logging'
+    LINGUISTIC = 'linguistic'
+    BOTH = 'both'
