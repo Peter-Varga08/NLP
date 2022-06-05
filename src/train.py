@@ -1,123 +1,179 @@
-import matplotlib.pyplot as plt
+import argparse
+from typing import Union
+
 import numpy as np
 import pandas as pd
+from simpletransformers.config.model_args import ClassificationArgs
+from sklearn.model_selection import StratifiedKFold
 
 import utils_pipeline
-from enums import Split
+from enums import Split, ConfigMode, Modality
+from src.model import ClassificationTransformer, NeuralNetwork
+
+
+def train_parser() -> argparse.Namespace:
+    parser = argparse.ArgumentParser()
+    subparsers = parser.add_subparsers()
+
+    # |-----------------------------------------|
+    # |            BASE ARGUMENTS               |
+    # |-----------------------------------------|
+    parser.add_argument("-r", "--result_path", default='./transformer_predictions.txt',
+                        help="Directory where to save results.")
+    parser.add_argument("-tr", "--train_file", default='./data/IK_NLP_22_PESTYLE/train.tsv',
+                        type=str, help="Location of training file.")
+    parser.add_argument("-f", "--features", help="Which features to include", choices=["log", "ling", "both"])
+    parser.add_argument('-v', '--verbose', action='store_true', help='Whether to enable or disable logging.')
+    # |-----------------------------------------|
+    # |            BERT MODEL                   |
+    # |-----------------------------------------|
+    bert_parser = subparsers.add_parser("BERT")
+    bert_parser.add_argument('--subparser_bert', default=True)
+    bert_parser.add_argument("-c", "--bert_config", type=str, default='dbmdz/bert-base-italian-uncased',
+                             help="Specify a model configuration from HuggingFace.")
+    # |-----------------------------------------|
+    # |            NEURAL NETWORK               |
+    # |-----------------------------------------|
+    # Specified parameters based training
+    nn_parser = subparsers.add_parser("NN")
+    nn_parser.add_argument('-e', '--early_stopping', type=int, help="Patience of early stopping.", default=100)
+    nn_parser.add_argument('-l', '--learning_rate', type=float, default=1e-3)
+    nn_parser.add_argument('-b', '--batch_size', type=int, default=16)
+    nn_parser.add_argument('-d', '--dropout', type=float, default=0.1)
+    nn_parser.add_argument('-c', '--clipvalue', type=float, default=0.5)
+    nn_parser.add_argument('-o', '--optimizer', type=str, default="Adam")
+    # Parameter search training
+    nn_paramsearch_parser = subparsers.add_parser("NN_ParamSearch")
+    nn_paramsearch_group = nn_paramsearch_parser.add_mutually_exclusive_group()
+    # TODO: Define values for GridSearchCV later
+    nn_paramsearch_group.add_argument('--grid', action='store_true',
+                                      help="Perform parameter search with 'GridSearchCV'.")
+    # TODO: Define distribution for RandomizedSearchCV
+    nn_paramsearch_group.add_argument('--random', action='store_true',
+                                      help="Perform parameter search with 'RandomizedSearchCV'.")
+
+    # |-----------------------------------------|
+    # |            REGRESSION ML MODELS         |
+    # |-----------------------------------------|
+    regressor_parser = subparsers.add_parser("ML_REG")
+    # Common regressor params
+    regressor_parser.add_argument('-m', '--model', type=str, default=None, required=True, choices=['lr', 'rr', 'en'],
+                                  help="'lr': LinearRegression, 'rr': Ridge, 'en': ElasticNet")
+    regressor_parser.add_argument('-n', '--normalize', action='store_true', help="Subtract mean and divide by L2-norm.")
+    regressor_parser.add_argument('--n_jobs', type=int, default=-1)
+    # Ridge() and ElasticNet() params
+    regressor_parser.add_argument('-a', '--alpha', type=Union[float, int], default=1,
+                                  help="Control L2 term by multiplication with alpha, in [0, inf].")
+    regressor_parser.add_argument('-s', '--solver', type=str, default='auto',
+                                  choices=['auto', 'svd', 'cholesky', 'lsqr', 'sparse_cg', 'sag', 'saga', 'lbfgs'])
+    # ElasticNet() params
+    # TODO: always add 'precompute'
+    regressor_parser.add_argument('-l1', '--l1_ratio', type=float, default=0.5,
+                                  help='For l1=0 the penalty is an L2 penalty. For l1=1 it is an L1 penalty.')
+    regressor_parser.add_argument('--max_iter', type=int, default=1000)
+    regressor_parser.add_argument('--tol', type=float, default=1e-4, help='Tolerance for optimization.')
+    regressor_parser.add_argument('--selection', type=str, default='random',
+                                  help='Setting ‘random’ often leads to significantly faster convergence,'
+                                       ' especially when tol is higher than 1e-4.')
+
+    regressor_paramsearch_parser = subparsers.add_parser("ML_REG_ParamSearch")
+    # TODO: Define values for GridSearchCV later
+    regressor_paramsearch_parser.add_argument('--grid', action='store_true',
+                                              help="Perform parameter search with 'GridSearchCV'.")
+    # TODO: Define distribution for RandomizedSearchCV
+    regressor_paramsearch_parser.add_argument('--random', action='store_true',
+                                              help="Perform parameter search with 'RandomizedSearchCV'.")
+    # |-----------------------------------------|
+    # |           CLASSIFIER ML MODELS          |
+    # |-----------------------------------------|
+    # 1) LinearSVC
+    svc_parser = subparsers.add_parser("ML_CLF_SVC")
+    svc_parser.add_argument('--penalty', type=str, choices=["l1", "l2"])
+    svc_parser.add_argument('--loss', type=str, choices=["hinge", "squared_hinge"])
+    svc_parser.add_argument('--C', type=float, help="Inversely proportional regularization parameter.", default=1.0)
+    svc_parser.add_argument('--max_iter', type=int, default=1000)
+    svc_paramsearch_parser = subparsers.add_parser("ML_CLF_SVC_ParamSearch")
+    # TODO: Define values for GridSearchCV later
+    svc_paramsearch_parser.add_argument('--grid', action='store_true',
+                                        help="Perform parameter search with 'GridSearchCV'.")
+    # TODO: Define distribution for RandomizedSearchCV
+    svc_paramsearch_parser.add_argument('--random', action='store_true',
+                                        help="Perform parameter search with 'RandomizedSearchCV'.")
+    # 2) RandomForest
+    randomforest_parser = subparsers.add_parser("ML_CLF_RF")
+    randomforest_parser.add_argument('-ne', type=int, default=100, help='Number of estimators in the forest.', )
+    randomforest_parser.add_argument('--max_depth', type=int, default=None,
+                                     help="None means expansion until all leaves are pure,"
+                                          " or contain less than min_samples")
+    # Modifying this to higher than 2 is an immediate regularization
+    randomforest_parser.add_argument('--min_samples', type=int, default=2)
+    randomforest_paramsearch_parser = subparsers.add_parser("ML_CLF_RF_ParamSearch")
+    # TODO: Define values for GridSearchCV later
+    randomforest_paramsearch_parser.add_argument('--grid', action='store_true',
+                                                 help="Perform parameter search with 'GridSearchCV'.")
+    # TODO: Define distribution for RandomizedSearchCV
+    randomforest_paramsearch_parser.add_argument('--random', action='store_true',
+                                                 help="Perform parameter search with 'RandomizedSearchCV'.")
+
+    return parser.parse_args()
+
 
 if __name__ == "__main__":
-
-    #TODO: TRANSFORMER
-    # ------------------------------------------------------------------------------------------------------------------
-    # Define model
-    model_args = ClassificationArgs()
-    model_args.num_train_epochs = 3
-    model_args.overwrite_output_dir = True
-    model_args.learning_rate = 0.000001
-    model_args.do_lower_case = True
-    model_args.silence = True
-    model = ClassificationModel("bert", "dbmdz/bert-base-italian-uncased", args=model_args, use_cuda=False,
-                                num_labels=3)
+    args = train_parser()
 
     # Create the correct splits for cross-validation
     skf = StratifiedKFold(n_splits=10, shuffle=True, random_state=42)
-    X, y = prepare_train(args.train_file)
-    X = np.array(X)
-    y = np.array(y)
-    for train_index, test_index in skf.split(X, y):
-        X_train, X_test = X[train_index], X[test_index]
-        y_train, y_test = y[train_index], y[test_index]
+    df_train = utils_pipeline.load_dataframe(split=Split.TRAIN, mode=ConfigMode.FULL,
+                                             exclude_modality=Modality.SCRATCH, only_numeric=True)
 
-        # Prepare train set
-        train_data = reformat_train(X_train, y_train)
-        train_df = pd.DataFrame(train_data)
-        train_df.columns = ["text_a", "text_b", "labels"]
-        train_df["labels"] = train_df["labels"].replace(["t1", "t2", 't3'], [0, 1, 2])
-        print(train_df)
+    if hasattr(args, 'subparser_bert'):
+        # Define model
+        model_args = ClassificationArgs()
+        model_args.num_train_epochs = 3
+        model_args.overwrite_output_dir = True
+        model_args.learning_rate = 0.000001
+        model_args.do_lower_case = True
+        model_args.silence = True
+        model = ClassificationTransformer(args, model_args)
 
-        # Train model
-        model.train_model(train_df)
-
-        # Predict synsets
-        predictions = predict_test(reformat_test(X_test), model)
-        all_predictions.append(predictions)
-        all_predictions.append("\n")
-        print("ACCURACY: ", get_accuracy(y_test, predictions))
-
-    #TODO: Neural Network
-    # ------------------------------------------------------------------------------------------------------------------
-
-    print('Hello World! This script is to train the neural network :)')
-    result_path, features, oversampling, kfold = utils.parse_nn_model()
-    df_train = utils_pipeline.load_dataframe(split=Split.TRAIN,
-                                             mode='full',
-                                             exclude_modality='ht',
-                                             only_numeric=True)
-    y, label_encoder = utils_pipeline.get_train_labels()
-    print(features)
-    if features == 'ling':
-        df_train, _ = utils_pipeline.get_ling_feats()
-        if kfold == 'L':
-            ths = [
-                0, .5, .1, .15, .2, .25, .3, 0.35, .4, 0.45, .5, .55, .6, .65,
-                .7, .75, .8, .85, .9, .95
-            ]
-            losses = []
-            accs = []
-            for th in ths:
-                print(th)
-                df2 = utils_pipeline.filter_features(df_train, th=th, verbose=False)
-                columns = list(df2.columns)
-                input_len = len(columns)
-                print(input_len)
-                if input_len == 0:
-                    break
-                abc = do_single(df2,
-                                y,
-                                label_encoder,
-                                input_len,
-                                patience=100,
-                                LR=1e-3,
-                                oversampling=oversampling,
-                                result_path=result_path)
-                losses.append(abc[0])
-                accs.append(abc[1])
-            plt.figure(figsize=(15, 15))
-            plt.plot(losses)
-            plt.savefig(result_path + '/ling_loss.png')
-            plt.figure(figsize=(15, 15))
-            plt.plot(accs)
-            plt.savefig(result_path + '/ling_acc.png')
-            df_train = utils_pipeline.filter_features(df_train,
-                                                      th=ths[np.argmax(accs)],
-                                                      verbose=False)
+        X = None
+        y = None
+    else:
+        if hasattr(args, 'subparser_nn'):
+            model = NeuralNetwork(input_len, layers=layers, LR=LR)
+        elif hasattr(args, 'subparser_nn_search'):
+            pass
+        elif hasattr(args, 'subparser_ml_reg'):
+            pass
+        elif hasattr(args, 'subparser_ml_reg_search'):
+            pass
+        elif hasattr(args, 'subparser_ml_clf'):
+            pass
+        elif hasattr(args, 'subparser_ml_clf_search'):
+            pass
         else:
-            print(kfold)
-    elif features == 'both':
-        df_train2, _ = utils_pipeline.get_ling_feats()
-        print(df_train2.shape)
-        df_train2 = utils_pipeline.filter_features(df_train2, th=0, verbose=False)
-        print(df_train2.shape)
-        df_train2.index = df_train.index
-        df_train = pd.concat([df_train, df_train2], axis='columns')
-        print(df_train.shape)
-        print(df_train)
-        # set_trace()
-    columns = list(df_train.columns)
-    input_len = len(columns)
-    print(input_len)
-    if kfold:
-        do_kfold_scoring(df_train,
-                         y,
-                         label_encoder,
-                         input_len,
-                         oversampling=oversampling)
-    do_single(df_train,
-              y,
-              label_encoder,
-              input_len,
-              oversampling=oversampling,
-              result_path=result_path)
+            raise SyntaxError("In order to perform training, specification of subparser is required.")
+
+        # if args.features == "log", no change is required
+        if args.features == 'ling':
+            df_train = utils_pipeline.get_ling_feats(Split.TRAIN)
+        elif args.features == 'both':
+            df_train_ling = utils_pipeline.get_ling_feats()
+            df_train = pd.concat([df_train, df_train_ling], axis='columns')
+        X = df_train.to_numpy()
+        y = utils_pipeline.get_train_labels()
+        y_encoder = utils_pipeline.get_train_label_encoder()
+
+        # Do StratifiedKfold training
+        for train_index, valid_index in skf.split(X, y):
+            X_train, X_valid = X[train_index], X[valid_index]
+            y_train, y_valid = y[train_index], y[valid_index]
+            y_train_encoded, y_valid_encoded = y_encoder.transform(y[train_index]), y_encoder.transform(y[valid_index])
+            X_train_scaled, X_valid_scaled = utils_pipeline.scaling(X_train, X_valid)
+
+            model.fit(X_train_scaled, y_train_encoded)
+            prediction = model.predict(X_valid_scaled)
+
 
     # TODO: ML models
     # ------------------------------------------------------------------------------------------------------------------
@@ -161,29 +217,9 @@ if __name__ == "__main__":
     label_encoder = LabelBinarizer().fit(y_train)
     y_train_encoded = label_encoder.transform(y_train)  # used for 'run_test()' only
 
-    # Numeric features
-    logger.info("Creating numeric features.")
     X_train_numeric = select_columns(df_train, dtype_include=['float32', 'int32'], name_exclude=['item_id'])
     X_test_numeric = select_columns(df_test, dtype_include=['float32', 'int32'], name_exclude=['item_id'])
-    # Linguistic features
-    logger.info("Loading linguistic features...")
 
-    lingfeat = [
-        LingFeatDF(pd.read_csv('../data/linguistic_features/train_mt.csv', sep="\t").drop(columns=['Filename']), 'train_mt'),
-        LingFeatDF(pd.read_csv('../data/linguistic_features/test_mt.csv', sep='\t').drop(columns=['Filename']), 'test_mt'),
-        LingFeatDF(pd.read_csv('../data/linguistic_features/train_tgt.csv', sep="\t").drop(columns=['Filename']),
-                   'train_tgt'),
-        LingFeatDF(pd.read_csv('../data/linguistic_features/test_tgt.csv', sep="\t").drop(columns=['Filename']), 'test_tgt'),
-    ]
-    intersected_linguistic_columns = intersect_linguistic_columns(*[nt.df for nt in lingfeat])
-    col_lens = []
-    for idx, nt in enumerate(lingfeat):
-        lingfeat[idx] = filter_linguistic_columns(nt.df, intersected_linguistic_columns)
-        col_lens.append(lingfeat[idx].df.columns)
-    assert len(set(col_lens)) == 1, "Number of columns have to be equal for all linguistic feature dataframes."
-
-    X_train_ling = subtract_df(lingfeat[0], lingfeat[2])
-    X_test_ling = subtract_df(lingfeat[1], lingfeat[3])
     # Combined features
     X_train_combined = pd.concat([X_train_numeric.reset_index(drop=True), X_train_ling.reset_index(drop=True)], axis=1)
     X_test_combined = pd.concat([X_test_numeric.reset_index(drop=True), X_test_ling.reset_index(drop=True)], axis=1)

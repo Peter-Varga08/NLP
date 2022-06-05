@@ -1,3 +1,25 @@
+import argparse
+
+
+def test_parser():
+    parser = argparse.ArgumentParser()
+    parser.add_argument("-te", "--test_file", default='./data/IK_NLP_22_PESTYLE/test.tsv',
+                        type=str, help="Location of test file.")
+    parser.add_argument("-r", "--result_path", default='./transformer_predictions.txt',
+                        help="Directory where to save results.")
+
+    # Subparsers to allow the different kind of model loaders be used without conflicts
+    subparsers = parser.add_subparsers()
+    bert_parser = subparsers.add_parser("BERT")
+    bert_parser.add_argument("-m", "--bert_model", type=str, help="Specify path to an already fine-tuned HuggingFace "
+                                                                  "BERT model.")
+    nn_parser = subparsers.add_parser("NN")
+    nn_parser.add_argument("-m", "--nn_model", type=str, help="Specify path to an already fine-tuned PyTorch NN model.")
+    ml_parser = subparsers.add_parser('ML')
+    ml_parser.add_argument('-m', '--sklearn_model', type=str,
+                           help="Specify path to an already fine-tuned sklearn model.")
+
+
 # TODO
 # TRANSFORMER
 # --------------------------------------------------------------------------------------------------------------------

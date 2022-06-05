@@ -1,8 +1,6 @@
-import argparse
 import os
-import random
-import sys
 from collections import namedtuple
+from typing import Union
 
 import numpy as np
 import pandas as pd
@@ -14,57 +12,6 @@ from sklearn.preprocessing import LabelBinarizer, StandardScaler
 from enums import ConfigMode, Modality, Split
 
 LingFeatDF = namedtuple('LingFeatDF', ['df', 'name'])
-
-
-class ModelParser:
-    def __init__(self) -> None:
-        pass
-
-    # TODO: ADD WRAPPER FOR ARGUMENT VALIDATION IF NEEDED
-    @staticmethod
-    def parse_nn_model() -> argparse:
-        parser = argparse.ArgumentParser(description="Neural Network models argument parser.")
-        parser.add_argument("-r", "--result_path", help="Directory where to save results.")
-        parser.add_argument("-o", "--oversampling", default=False, help="Whether to oversample training data.")
-        parser.add_argument("-k", "--kfold", default=False, help="Whether to do K(=10)-fold cross-validation.")
-        parser.add_argument("-f", "--features", help="Which features to include", choices=["log", "ling", "both"])
-        try:
-            args = parser.parse_args()
-            args.features = args.features.lower()
-        except Exception as e:
-            print(e)
-            parser.print_help()
-            sys.exit(0)
-        mkdirs(args.result_path)
-        return args
-
-    @staticmethod
-    def parse_ml_model() -> argparse.Namespace:
-        parser = argparse.ArgumentParser(description="Machine Learning models argument parser.")
-        parser.add_argument('-e', '--experiment_type', type=str, default='numeric',
-                            choices=['numeric', 'linguistic', 'combined'],
-                            help='Type of experiment to run, w.r.t. the features being used.')
-        parser.add_argument('-m', '--model_type', type=str, default=None, required=True, choices=['lr', 'rf'],
-                            help="The type of sklearn model to run the experiments with."
-                                 " Can either be LinearRegression (lr) or RandomForestClassifier (rf)")
-        parser.add_argument('-s', '--scaling', action='store_true', help='Whether to use scaling on features or not.')
-        parser.add_argument('-v', '--verbose', action='store_true', help='Whether to enable or disable logging.')
-        parser.add_argument('-t', '--test', action='store_true', help='Whether to run tests or not.')
-        parser.add_argument('-p', '--plots', action='store_true', help='Whether to create plots or not')
-        return parser.parse_args()
-
-    @staticmethod
-    def parse_transformer_model() -> argparse.Namespace:
-        parser = argparse.ArgumentParser(description="Transformer models argument parser.")
-        parser.add_argument("-tr", "--train_file", default='./data/IK_NLP_22_PESTYLE/train.tsv',
-                            type=str, help="Location of training file.")
-        parser.add_argument("-te", "--test_file", default='./data/IK_NLP_22_PESTYLE/test.tsv',
-                            type=str, help="Location of test file.")
-        parser.add_argument("-o", "--outfile", default='./transformer_predictions.txt',
-                            type=str, help="Path to write output to.")
-        parser.add_argument("-m", "--model",
-                            type=str, help="Specify an already fine-tuned model")
-        return parser.parse_args()
 
 
 def mkdirs(dir_path):
@@ -83,8 +30,8 @@ def get_files(texts, filename):
 def load_dataframe(split: Split = None, mode: ConfigMode = ConfigMode.FULL,
                    exclude_modality: Modality = Modality.SCRATCH, only_numeric=False):
     """Load and filter the dataset."""
-    df = load_dataset("GroNLP/ik-nlp-22_pestyle", mode, data_dir="IK_NLP_22_PESTYLE")[split] \
-        .to_pandas().drop("item_id", axis=1, inplace=True)
+    data = load_dataset("GroNLP/ik-nlp-22_pestyle", mode, data_dir="IK_NLP_22_PESTYLE")[split]
+    df = data.to_pandas().drop("item_id", axis=1, inplace=True)
 
     # filter modalities
     df_mod_filtered = df[df["modality"] != exclude_modality]
@@ -99,12 +46,17 @@ def load_dataframe(split: Split = None, mode: ConfigMode = ConfigMode.FULL,
 
 
 def get_train_labels():
-    df = load_dataset("GroNLP/ik-nlp-22_pestyle", ConfigMode.MASK_SUBJECT, data_dir="IK_NLP_22_PESTYLE")[Split.TRAIN] \
-        .to_pandas()
-    y = np.array(df.subject_id)
-    label_encoder = LabelBinarizer().fit(y)
+    data = load_dataset("GroNLP/ik-nlp-22_pestyle", ConfigMode.MASK_SUBJECT, data_dir="IK_NLP_22_PESTYLE")[Split.TRAIN]
+    df = data.to_pandas()
+    return LabelBinarizer().fit_transform(np.array(df.subject_id))
 
-    return y, label_encoder
+
+def get_train_label_encoder():
+    data = load_dataset("GroNLP/ik-nlp-22_pestyle", ConfigMode.MASK_SUBJECT, data_dir="IK_NLP_22_PESTYLE")[Split.TRAIN]
+    df = data.to_pandas()
+    encoder = LabelBinarizer()
+    encoder.fit(np.array(df.subject_id))
+    return encoder
 
 
 def scaling(X_train, X_valid):
@@ -133,12 +85,10 @@ def get_tf_dataset(X, Y):
     return dataset
 
 
-def get_Kfolds(X, y, K=10):
-    skf = StratifiedKFold(n_splits=K, shuffle=True, random_state=42)
-    return skf.split(X, y)
+def get_ling_feats(split: Split = None):
+    if not isinstance(split, Split):
+        raise TypeError(f"'split' expected type 'Split', got {type(split)}.")
 
-
-def get_ling_feats():
     df_mt = pd.read_csv("../data/linguistic_features/train_mt.csv", sep="\t", index_col="Filename")
     df_tgt = pd.read_csv("../data/linguistic_features/train_tgt.csv", sep="\t", index_col="Filename")
     df_mt_test = pd.read_csv("../data/linguistic_features/test_mt.csv", sep="\t", index_col="Filename")
@@ -149,49 +99,15 @@ def get_ling_feats():
             & set(list(df_mt_test.columns))
             & set(list(df_tgt_test.columns))
     )
-    df_mt = df_mt[columns]
+
+    if split == Split.TRAIN:
+        df_mt = df_mt[columns]
+        df_tgt = df_tgt[columns]
+        return df_mt.subtract(df_tgt, axis="columns")
+
     df_mt_test = df_mt_test[columns]
-    df_tgt = df_tgt[columns]
     df_tgt_test = df_tgt_test[columns]
-    return df_mt.subtract(df_tgt, axis="columns"), df_mt_test.subtract(df_tgt_test, axis="columns")
-
-
-def intersection(lst1: list, lst2: list) -> list:
-    """Remove features that are not present in all dataframes."""
-    return list(set(lst1) & set(lst2))
-
-
-def intersect_linguistic_columns(train_mt: pd.DataFrame, train_tgt: pd.DataFrame,
-                                 test_mt: pd.DataFrame, test_tgt: pd.DataFrame) -> list:
-    """Merge columns of the extracted linguistic feature dataframes, after having used the linguistic tool API."""
-    all_columns = [list(train_mt.columns), list(train_tgt.columns), list(test_mt.columns), list(test_tgt.columns)]
-    # initiate intersected columns with an arbitrary dataframes' columns
-    intersected_columns = random.choice(all_columns)
-    for cols in all_columns:
-        intersected_columns = intersection(intersected_columns, cols)
-    return intersected_columns
-
-
-def filter_linguistic_columns(df_ling: pd.DataFrame, intersected_columns: list) -> pd.DataFrame:
-    """Return only columns of the linguistic dataframe that are found within the 'intersected_columns' list."""
-    if len(intersection(list(df_ling.columns), intersected_columns)) < len(intersected_columns):
-        raise ValueError("Unfiltered linguistic dataframe has missing columns. Dataframe columns must include at least "
-                         "all elements of 'intersected_columns' argument.")
-    return df_ling[[intersected_columns]]
-
-
-def subtract_df(df_mt: LingFeatDF, df_tgt: LingFeatDF) -> pd.DataFrame:
-    """Subtract machine-translated dataframe of ling features from post-edited dataframe of ling features."""
-    if isinstance(df_mt, LingFeatDF) and isinstance(df_tgt, LingFeatDF):
-        if df_mt.name.split('_')[0] != df_tgt.name.split('_')[0]:
-            raise SyntaxError(
-                "Wrong values of LingFeatDF have been given, 'name' attributes must have identical beginning."
-            )
-        if not df_mt.name.endswith('mt') and not df_tgt.name.endswith('tgt'):
-            raise SyntaxError("Dataframes have been given in the wrong order. 'mt' is required to be first.")
-    else:
-        raise TypeError("Subtraction of DataFrames only possible between LingFeatDF namedtuples.")
-    return df_tgt.df.subtract(df_mt.df)
+    return df_mt_test.subtract(df_tgt_test, axis="columns")
 
 
 def filter_features(df, th=0.9, verbose=True):

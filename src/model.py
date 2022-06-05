@@ -1,11 +1,14 @@
 import argparse
+from typing import List
 
 import numpy as np
+import pandas as pd
 import tensorflow as tf
 from imblearn.over_sampling import BorderlineSMOTE
 from matplotlib import pyplot as plt
 from seqeval.metrics import classification_report
 from simpletransformers.classification import ClassificationModel
+from simpletransformers.config.model_args import ClassificationArgs
 from sklearn.model_selection import train_test_split
 from tensorflow.keras.layers import BatchNormalization, Dense, Dropout, Input
 
@@ -13,13 +16,15 @@ import utils_pipeline
 
 
 class NeuralNetwork:
-    def __init__(self, input_len, layers, lr):
-        self.lr = lr
-        self.input_layer = Input(shape=(input_len,))
-        self.dense = Dense(layers[0], activation="relu")(self.input_layer)
+    def __init__(self, args: argparse.Namespace, layers=[512, 256]):
+        self.args = args
+        self.layers = layers
+
+        self.input_layer = Input(shape=(self.input_len,))
+        self.dense = Dense(self.layers[0], activation="relu")(self.input_layer)
         self.dense = BatchNormalization()(self.dense)
         self.dense = Dropout(0.1)(self.dense)
-        for l in layers[1:]:
+        for l in self.layers[1:]:
             self.dense = Dense(l, activation="relu")(self.dense)
             self.dense = BatchNormalization()(self.dense)
             self.dense = Dropout(0.1)(self.dense)
@@ -46,31 +51,43 @@ class NeuralNetwork:
 
     def compile_model(self) -> None:
         self._model.compile(
-            optimizer=tf.keras.optimizers.Adam(learning_rate=self.lr, clipvalue=0.5),
+            optimizer=tf.keras.optimizers.Adam(learning_rate=self.args.lr, clipvalue=self.args.clipvalue),
             loss=tf.keras.losses.CategoricalCrossentropy(),
             metrics=["accuracy"],
         )
 
     @classmethod
-    def get_early_stopping(cls, patience=100) -> None:
+    def get_tf_dataset(cls):
+        pass
+
+    def get_early_stopping(self):
         return tf.keras.callbacks.EarlyStopping(monitor='val_accuracy',
                                                 min_delta=0,
-                                                patience=patience,
+                                                patience=self.args.patience,
                                                 verbose=1,
                                                 mode='max',
                                                 baseline=None,
                                                 restore_best_weights=True)
 
-    #TODO
-    def do_kfold_scoring(self, X: pd.DataFrame = None,
-                         y: np.ndarray = None,
-                         label_encoder=label_encoder,
-                         input_len=input_len,
-                         layers=[512, 256],
-                         LR=1e-3,
-                         K=10,
-                         batch_size=16,
-                         oversampling=False):
+    def fit(self, X_train, y_train) -> None:
+        X_train = NeuralNetwork.get_tf_dataset(X_train, y_train).shuffle(500).batch(self.args.batch_size)
+        self.model.fit(train_set,
+                       validation_data=valid_set,
+                       epochs=1000,
+                       callbacks=[self.get_early_stopping()])
+        return ...
+
+    def predict(self, X_valid) -> None:
+        X_valid = utils_pipeline.get_tf_dataset(X_valid, y_valid).batch(args.batch_size)
+        return self.model.predict(X_valid)
+
+    def evaluate(self, X_valid, y_valid):
+        X_valid = utils_pipeline.get_tf_dataset(X_valid, y_valid).batch(args.batch_size)
+        self.model.evaluate(X_valid, y_valid)
+
+    # TODO
+    def do_kfold_scoring(self, X: pd.DataFrame = None, y: np.ndarray = None, label_encoder=label_encoder,
+                         input_len=input_len, layers=[512, 256], LR=1e-3, K=10, batch_size=16, oversampling=False):
         """Performs a k-fold CV with given model on the supplied dataset"""
         X = X.to_numpy()
         kfolds = utils_pipeline.get_Kfolds(X, y, K)
@@ -79,15 +96,9 @@ class NeuralNetwork:
         early_stop = NeuralNetwork.get_early_stopping()
         for train_index, valid_index in kfolds:
             X_train, X_valid = X[train_index], X[valid_index]
-            y_train, y_valid = label_encoder.transform(
-                y[train_index]), label_encoder.transform(y[valid_index])
+            y_train, y_valid = label_encoder.transform(y[train_index]), label_encoder.transform(y[valid_index])
             X_train, X_valid = utils_pipeline.scaling(X_train, X_valid)
-            if oversampling:
-                bsmote = BorderlineSMOTE(random_state=101, kind='borderline-1')
-                X_train, y_train = bsmote.fit_resample(X_train, y_train)
-            train_set = utils_pipeline.get_tf_dataset(X_train,
-                                                      y_train).shuffle(500).batch(batch_size)
-            valid_set = utils_pipeline.get_tf_dataset(X_valid, y_valid).batch(batch_size)
+
             model = NeuralNetwork(input_len, layers=layers, LR=LR)
             history = model.fit(train_set,
                                 validation_data=valid_set,
@@ -107,27 +118,11 @@ class NeuralNetwork:
                 classification_report([np.argmax(gt) for gt in y_valid],
                                       [np.argmax(yp) for yp in preds]))
             abc = model.evaluate(X_valid, y_valid)
-            print(abc)
-            scores_valid.append(abc)
-            i += 1
-        losses = [el[0] for el in scores_valid]
-        accs = [el[1] for el in scores_valid]
-        print("Average loss score:", round(np.mean(losses), 4), '+-',
-              round(np.std(losses), 4))
-        print("Average acc score:", round(np.mean(accs), 4), '+-',
-              round(np.std(accs), 4))
 
-    #TODO
-    def do_single(self, X,
-                  y,
-                  label_encoder,
-                  input_len,
-                  layers=[512, 256],
-                  LR=1e-3,
-                  batch_size=16,
-                  oversampling=False,
-                  result_path='./w/best',
-                  patience=100):
+
+    # TODO
+    def do_single(self, X, y, label_encoder, input_len, layers=[512, 256], LR=1e-3, batch_size=16, oversampling=False,
+                  result_path='./w/best', patience=100):
         X = X.to_numpy()
         X_train, X_valid, y_train, y_valid = train_test_split(X,
                                                               y,
@@ -164,69 +159,12 @@ class NeuralNetwork:
         return abc
 
 
-#TODO
-class Transformer:
-    def __init__(self, args: argparse.Namespace) -> None:
-        self.args = args
-        self.model = ClassificationModel("bert", self.args.model, use_cuda=False)
-
-    @staticmethod
-    def arg_parser():
-
-
-    @staticmethod
-    def prepare_train(train_file: str, include_from_scratch=False):
-        """
-        Extract the relevant features from the data set: MT, PE and subject.
-        If include_from_scratch is False, we do not take into account the HT modality.
-        """
-        pairs = []
-        labels = []
-        with open(train_file) as train:
-            train.readline()  # Skip first line: this is the header
-            for line in train:
-                if line.split("\t")[1][0] == "t":
-                    # Get a list of: [MT output, post-edited sentence, subject id]
-                    if include_from_scratch:
-                        pairs.append([line.split("\t")[4], line.split("\t")[5]])
-                        labels.append(line.split("\t")[1])
-                    else:
-                        if line.split("\t")[4]:
-                            pairs.append([line.split("\t")[4], line.split("\t")[5]])
-                            labels.append(line.split("\t")[1])
-
-        # We use only 90% of the data, in order to allow comparison with the other models
-        X_train, _, y_train, _ = train_test_split(pairs, labels, test_size=0.1, random_state=42)
-
-        return X_train, y_train
-
-    @staticmethod
-    def predict_test(test_data: str, model: ClassificationModel, include_from_scratch=False, final=False):
-        """
-        Given a fine-tuned model, predict the labels (translators) from MT-PE sentence pairs.
-        If include_from_scratch is False, we do not take into account the HT modality.
-        """
-        pairs = []
-        predictions = []
-
-        if final:  # Use the 'final' (official) test set
-            with open(test_data) as test:
-                test.readline()  # Skip first line: this is the header
-                for line in test:
-                    if line.split("\t")[0][0] in "0123456789":
-                        if include_from_scratch:
-                            pairs.append([line.split("\t")[4], line.split("\t")[5]])
-                        else:
-                            if line.split("\t")[4]:
-                                pairs.append([line.split("\t")[4], line.split("\t")[5]])
-        else:  # Use a subset of the data for cross-validation
-            pairs = test_data
-
-        for pair in pairs:
-            prediction, _ = model.predict(pair)
-            predictions.append(prediction[0])
-
-        return predictions
+# TODO
+class ClassificationTransformer(ClassificationModel):
+    def __init__(self, base_args: argparse.Namespace, model_args: ClassificationArgs) -> None:
+        self.base_args = base_args
+        self.model_args = model_args
+        super().__init__(self, "bert", self.base_args.bert_config, self.model_args, use_cuda=False, num_labels=3)
 
     @staticmethod
     def get_accuracy(gold: str, pred):
@@ -256,7 +194,7 @@ class Transformer:
         return correct / len(gold)
 
     @staticmethod
-    def reformat_test(pairs):
+    def _reformat_test(pairs: np.ndarray) -> pd.DataFrame:
         """
         Retrieve a regular list from the numpy array
         The output is a list that contains lists ([MT,PE]) with each sentence pair.
@@ -268,20 +206,31 @@ class Transformer:
         for m, p in zip(mt, pe):
             data.append([m, p])
 
-        return data
+        test_df = pd.DataFrame(data)
+        test_df.columns = ["text_mt", "text_pe"]
+        return test_df
 
     @staticmethod
-    def reformat_train(pairs, labels):
+    def _reformat_train(pairs: np.ndarray, labels: np.ndarray) -> pd.DataFrame:
         """
         Retrieve a regular list from the numpy array
         The output is a list that contains lists ([MT,PE,label]) from each sentence pair.
         """
         data = []
-        mt = [t[0] for t in pairs]
-        pe = [t[1] for t in pairs]
-        labs = np.ndarray.tolist(labels)
+        mt: List[str] = [t[0] for t in pairs]
+        pe: List[str] = [t[1] for t in pairs]
+        labs: List[int] = labels.flatten().tolist()
 
         for m, p, l in zip(mt, pe, labs):
             data.append([m, p, l])
 
-        return data
+        train_df = pd.DataFrame(data)
+        train_df.columns = ["text_mt", "text_pe", "labels"]
+        return train_df
+
+    def fit(self, X_train, y_train):
+        """
+        Fit 'simpletransformer' classification model.
+        """
+        train_df = self._reformat_train(X_train, y_train)
+        self.train_model(train_df)
