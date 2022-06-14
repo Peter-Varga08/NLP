@@ -1,25 +1,25 @@
-from enum import StrEnum
+from enum import Enum
 
 
-class Split(StrEnum):
+class Split(str, Enum):
     TRAIN = 'train'
-    TEST = ' test'
+    TEST = 'test'
 
 
-class Modality(StrEnum):
+class Modality(str, Enum):
     SCRATCH = 'ht'
     GOOGLE = 'pe1'
     MBART = 'pe2'
 
 
-class ConfigMode(StrEnum):
+class ConfigMode(str, Enum):
     FULL = 'full'
     MASK_SUBJECT = 'mask_subject'
     MASK_MODALITY = 'mask_modality'
     MASK_TIME = 'mask_time'
 
 
-class DatasetType(StrEnum):
+class DatasetType(str, Enum):
     LOGGING = 'logging'
     LINGUISTIC = 'linguistic'
     BOTH = 'both'
