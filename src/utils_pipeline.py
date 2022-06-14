@@ -1,12 +1,18 @@
 import os
-from typing import Union
+from typing import Union, List, Tuple, Callable
 
 import numpy as np
 import pandas as pd
 from datasets import load_dataset
+from matplotlib import pyplot as plt
+from sklearn.ensemble import RandomForestClassifier
+from sklearn.feature_selection import SelectKBest
+from sklearn.linear_model import LinearRegression
 from sklearn.preprocessing import LabelBinarizer, StandardScaler
 
-from enums import ConfigMode, Modality, Split
+from enums import ConfigMode, Split
+
+DATA_PATH = '../data/'
 
 
 def mkdirs(dir_path):
@@ -16,33 +22,47 @@ def mkdirs(dir_path):
         print("Creation of the directory %s failed" % dir_path)
 
 
-def load_dataframe(split: Split = None, mode: ConfigMode = ConfigMode.FULL,
-                   exclude_modality: Modality = Modality.SCRATCH, only_numeric=False):
+def check_and_get_split(func: Callable):
+    def wrapper_function(*args):
+        if not isinstance(args[0], Split):
+            raise TypeError(f"Positional argument {args[0]} has to be of type {type(Split)}.")
+        elif len(args) != 1:
+            raise TypeError(f'Function takes {len(args)} positional argument, but 1 was given.')
+        else:
+            split = args[0]
+            if split == Split.TRAIN:
+                return func('train', ConfigMode.FULL.value)
+            elif split == Split.TEST:
+                return func('test', ConfigMode.MASK_MODALITY.value)
+            else:
+                raise ValueError("Wrong input value for argument split.")
+
+    return wrapper_function
+
+
+@check_and_get_split
+def split_load_dataset(split: Union[Split, str], mode: ConfigMode):
+    data = load_dataset("GroNLP/ik-nlp-22_pestyle", mode, data_dir=DATA_PATH)[split]
+    df = data.to_pandas().drop("item_id", axis=1)
+    return df[df["modality"] != 'ht'].reset_index(drop=True)
+
+
+def load_dataframe(split: Split = None, only_numeric=False):
     """Load and filter the dataset."""
-    data = load_dataset("GroNLP/ik-nlp-22_pestyle", mode, data_dir="IK_NLP_22_PESTYLE")[split]
-    df = data.to_pandas().drop("item_id", axis=1, inplace=True)
-
-    # filter modalities
-    df_mod_filtered = df[df["modality"] != exclude_modality]
-
+    df = split_load_dataset(split)
     # filter datatypes
     if only_numeric:
         numeric_type = ["float32", "int32"]
-        df_mod_filtered = df_mod_filtered[
-            [col for col in df_mod_filtered.columns if df_mod_filtered[col].dtype in numeric_type]].fillna(0)
-
-    return df_mod_filtered
+        df = df[[col for col in df.columns if df[col].dtype in numeric_type]].fillna(0)
+    return df
 
 
-def get_train_labels():
-    data = load_dataset("GroNLP/ik-nlp-22_pestyle", ConfigMode.MASK_SUBJECT, data_dir="IK_NLP_22_PESTYLE")[Split.TRAIN]
-    df = data.to_pandas()
-    return LabelBinarizer().fit_transform(np.array(df.subject_id))
+def get_labels(split: Split):
+    return np.array(split_load_dataset(split).subject_id)
 
 
-def get_train_label_encoder():
-    data = load_dataset("GroNLP/ik-nlp-22_pestyle", ConfigMode.MASK_SUBJECT, data_dir="IK_NLP_22_PESTYLE")[Split.TRAIN]
-    df = data.to_pandas()
+def get_label_encoder(split: Split):
+    df = split_load_dataset(split)
     encoder = LabelBinarizer()
     encoder.fit(np.array(df.subject_id))
     return encoder
@@ -97,16 +117,6 @@ def save_feature_importance_plots(forest_importances: pd.Series, std: float, exp
     ax.set_ylabel("Features")
     ax.set_xlabel("Mean decrease in impurity")
     fig.savefig(f"../images/RandomForest_{experiment_type}_importances.jpg")
-
-
-def run_test(model, X_test, dataset_type: str) -> None:
-    """Run model on test set and obtain predictions."""
-    model_fit = model.fit(X_train, y_train)
-    if model._estimator_type == 'regressor':
-        predictions = transform_predictions(threshold_regression_prediction(model_fit.predict(X_test)))
-    else:
-        predictions = transform_predictions(model_fit.predict(X_test))
-    output_test_predictions(model_fit, predictions, experiment_type)
 
 
 def transform_predictions(predictions: np.ndarray) -> str:
