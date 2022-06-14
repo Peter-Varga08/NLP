@@ -1,18 +1,23 @@
+"""
+Example usage: python train.py ML_CLF_RF
+"""
+
 import argparse
 from typing import Union
 
 import numpy as np
 import pandas as pd
-from seqeval.metrics import classification_report, accuracy_score
+from scikeras.wrappers import KerasClassifier
 from simpletransformers.config.model_args import ClassificationArgs
 from sklearn.ensemble import RandomForestClassifier
+from sklearn.metrics import classification_report, accuracy_score
 from sklearn.metrics import f1_score
 from sklearn.model_selection import StratifiedKFold, GridSearchCV
 from sklearn.svm import LinearSVC
 
 import utils_pipeline
-from enums import Split, ConfigMode, Modality
-from src.model import ClassificationTransformer, NeuralNetwork, RegressionModel
+from enums import Split
+from model import ClassificationTransformer, NeuralNetwork, RegressionModel
 
 
 def train_parser() -> argparse.Namespace:
@@ -24,7 +29,7 @@ def train_parser() -> argparse.Namespace:
     # |-----------------------------------------|
     parser.add_argument("-r", "--result_path", default='./transformer_predictions.txt',
                         help="Directory where to save results.")
-    parser.add_argument("-tr", "--train_file", default='./data/IK_NLP_22_PESTYLE/train.tsv',
+    parser.add_argument("-tr", "--train_file", default='../data/',
                         type=str, help="Location of training file.")
     parser.add_argument("-f", "--features", help="Which features to include", choices=["log", "ling", "both"])
     parser.add_argument('-v', '--verbose', action='store_true', help='Whether to enable or disable logging.')
@@ -41,17 +46,18 @@ def train_parser() -> argparse.Namespace:
     # |-----------------------------------------|
     # Specified parameters based training
     nn_parser = subparsers.add_parser("NN")
-    nn_parser.add_argument('-e', '--early_stopping', type=int, help="Patience of early stopping.", default=100)
+    nn_parser.add_argument('-es', '--early_stopping', type=int, help="Patience of early stopping.", default=100)
     nn_parser.add_argument('-l', '--learning_rate', type=float, default=1e-3)
     nn_parser.add_argument('-b', '--batch_size', type=int, default=16)
+    nn_parser.add_argument('-ep', '--epochs', type=int, default=50)
     nn_parser.add_argument('-d', '--dropout', type=float, default=0.1)
     nn_parser.add_argument('-c', '--clipvalue', type=float, default=0.5)
     nn_parser.add_argument('-o', '--optimizer', type=str, default="Adam")
     # |-----------------------------------------|
     # |            REGRESSION ML MODELS         |
     # |-----------------------------------------|
-    #TODO: add separate subparser for each regressor; writing a wrapper just to save
-    #10 lines of code is not worth it
+    # TODO: add separate subparser for each regressor; writing a wrapper just to save
+    # 10 lines of code is not worth it
     regressor_parser = subparsers.add_parser("ML_REG")
     # Common regressor params
     regressor_parser.add_argument('-m', '--model', type=str, default=None, required=True, choices=['lr', 'rr', 'en'],
@@ -81,9 +87,10 @@ def train_parser() -> argparse.Namespace:
     svc_parser.add_argument('--max_iter', type=int, default=1000)
     # 2) RandomForest
     randomforest_parser = subparsers.add_parser("ML_CLF_RF")
+    randomforest_parser.add_argument('-subparser', '--subparser_ml_clf_rf', default=True)
     randomforest_parser.add_argument('-ne', '--n_estimators', type=int, default=100,
                                      help='Number of estimators in the forest.', )
-    randomforest_parser.add_argument('--max_depth', type=int, default=None,
+    randomforest_parser.add_argument('--max_depth', type=int, default=10,
                                      help="None means expansion until all leaves are pure,"
                                           " or contain less than min_samples")
     randomforest_parser.add_argument('--min_samples', type=int, default=2)
@@ -95,8 +102,7 @@ if __name__ == "__main__":
 
     # Create the correct splits for cross-validation
     skf = StratifiedKFold(n_splits=10, shuffle=True, random_state=42)
-    df_train = utils_pipeline.load_dataframe(split=Split.TRAIN, mode=ConfigMode.FULL,
-                                             exclude_modality=Modality.SCRATCH, only_numeric=True)
+    df_train = utils_pipeline.load_dataframe(split=Split.TRAIN, only_numeric=True)
 
     # BERT
     # ---------------------------------------------------------------------
@@ -119,11 +125,15 @@ if __name__ == "__main__":
         # ---------------------------------------------------------------------
         if hasattr(args, 'subparser_nn'):
             if not args.grid:
-                model = NeuralNetwork(input_len=args.input_len,
-                                      lr=args.lr,
-                                      clipvalue=args.clip_value)
+                nn = NeuralNetwork(input_len=args.input_len, lr=args.lr, clipvalue=args.clip_value)
+                # TODO: fix
+                model = KerasClassifier(nn.model,
+                                        batch_size=args.batch_size, epochs=args.epochs, verbose=1)
             else:
-                # TODO: How to do gridsearch with keras
+                # TODO: add GridSearchCV to KerasCLassifier
+                param_grid = {
+                    'lr': []
+                }
                 pass
         # Regressor
         # ---------------------------------------------------------------------
@@ -166,7 +176,7 @@ if __name__ == "__main__":
                               'tol': [1e-5, 5e-5,
                                       1e-4, 5e-4,
                                       1e-3, 5e-3,
-                                      1e-2, 5e-2]
+                                      1e-2, 5e-2],
                               'loss': ['hinge', 'squared_hinge'],
                               'penalty': ['l1', 'l2'],
                               'max_iter': [100, 250, 500, 1000, 2000]}
@@ -174,13 +184,12 @@ if __name__ == "__main__":
                                      param_grid=param_grid,
                                      cv=10,
                                      n_jobs=-args.n_jobs,
-                                     scoring=[f1_score, accuracy_score])
+                                     scoring=['f1_samples', 'accuracy'])
         # RandomForest classifier
         # ---------------------------------------------------------------------
         elif hasattr(args, 'subparser_ml_clf_rf'):
             if not args.grid:
-                model = RandomForestClassifier(n_jobs=args.n_jobs,
-                                               n_estimators=args.n_estimators,
+                model = RandomForestClassifier(n_estimators=args.n_estimators,
                                                max_depth=args.max_depth,
                                                min_samples_split=args.min_samples,
                                                random_state=42)
@@ -191,8 +200,8 @@ if __name__ == "__main__":
                 model = GridSearchCV(estimator=RandomForestClassifier(),
                                      param_grid=param_grid,
                                      cv=10,
-                                     n_jobs=args.n_jobs,
-                                     scoring=[f1_score, accuracy_score])
+                                     scoring=['f1_samples', 'accuracy'],
+                                     refit='accuracy')
         else:
             raise SyntaxError("In order to perform training, specification of subparser is required.")
 
@@ -208,9 +217,11 @@ if __name__ == "__main__":
         else:
             print("Loading only logging features...")
 
+        # TODO: 2022.06.12: ValueError: Found input variables with inconsistent numbers of samples: [780, 120]
         X = df_train.to_numpy()
-        y = utils_pipeline.get_train_labels()
-        y_encoder = utils_pipeline.get_train_label_encoder()
+        y = utils_pipeline.get_labels(Split.TRAIN)
+        # import pdb; pdb.set_trace()
+        y_encoder = utils_pipeline.get_label_encoder(Split.TRAIN)
 
         # Do StratifiedKfold training
         for train_index, valid_index in skf.split(X, y):
@@ -221,9 +232,7 @@ if __name__ == "__main__":
 
             # TODO: make sure all models share same interface
             model.fit(X_train_scaled, y_train_encoded)
-            predictions = model.predict(X_valid_scaled)
-
-            print(classification_report([np.argmax(gt) for gt in y_valid],
-                                        [np.argmax(yp) for yp in predictions]))
-
+            preds = model.predict(X_valid_scaled)
+            print(classification_report([np.argmax(gt) for gt in y_valid_encoded], [np.argmax(yp) for yp in preds]))
+            print(accuracy_score([np.argmax(yp) for yp in preds], [np.argmax(gt) for gt in y_valid_encoded]))
         # TODO: save models
