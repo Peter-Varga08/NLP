@@ -1,37 +1,56 @@
-import argparse
-from typing import List, Dict, Any
+from typing import List, Dict, Any, Union
 
-import numpy as np
 import pandas as pd
 import tensorflow as tf
+from numpy.typing import NDArray
 from simpletransformers.classification import ClassificationModel
 from simpletransformers.config.model_args import ClassificationArgs
+from sklearn.linear_model import LinearRegression, Ridge, ElasticNet
 from tensorflow.keras.layers import BatchNormalization, Dense, Dropout, Input
 
 
-#TODO: Finish
+# TODO: Finish
 class RegressionModel:
-    if args.model == 'lr':
-        model = LinearRegression(normalize=args.normalize,
-                                 n_jobs=args.n_jobs)
-    elif args.model == 'rr':
-        model = Ridge(normalize=args.normalize,
-                      alpha=args.alpha,
-                      solver=args.solver)
-    else:
-        model = ElasticNet(normalize=args.normalize,
-                           l1_ratio=args.l1_ratio,
-                           precompute=True,
-                           max_iter=args.max_iter,
-                           tol=args.tol,
-                           selection=args.selection)
+    def __init__(self, name: str = None, normalize: bool = True, n_jobs=-1, alpha: float = 0.5,
+                 l1_ratio: float = 0.5, precompute=True, max_iter: int = 100, tol: float = None,
+                 selection: str = 'random'):
+        self.name = name
+        self.normalize = normalize
+        self.n_jobs = n_jobs
+        self.alpha = alpha
+        self.l1_ratio = l1_ratio
+        self.precompute = precompute
+        self.max_iter = max_iter
+        self.tol = tol
+        self.selection = selection
+
+        if self.name == 'lr':
+            self.model = LinearRegression(normalize=self.normalize,
+                                          n_jobs=self.n_jobs)
+        elif self.name == 'rr':
+            self.model = Ridge(normalize=self.normalize,
+                               alpha=self.alpha)
+        else:
+            self.model = ElasticNet(normalize=self.normalize,
+                                    l1_ratio=self.l1_ratio,
+                                    precompute=True,
+                                    max_iter=self.max_iter,
+                                    tol=self.tol,
+                                    selection=self.selection)
+
+    def __call__(self) -> Union[LinearRegression, Ridge, ElasticNet]:
+        return self.model
+
 
 class NeuralNetwork:
-    def __init__(self, input_len: int = None, lr: float = None, clipvalue: float = None, layers=(512, 256)):
+    def __init__(self, input_len: int = None, lr: float = None, clipvalue: float = None, layers=(512, 256),
+                 patience: int = None, batch_size: int = None):
         self.lr = lr
         self.clipvalue = clipvalue
         self.input_len = input_len
         self.layers = layers
+        self.patience = patience
+        self.batch_size = batch_size
 
         self.input_layer = Input(shape=(self.input_len,))
         self.dense = Dense(self.layers[0], activation="relu")(self.input_layer)
@@ -46,7 +65,7 @@ class NeuralNetwork:
         self.model = self.model()
         self.summary = self.summary()
         self.compile_model()
-        self.train_history: Dict[str, np.ndarray] = {}
+        self.train_history: Dict[str, NDArray] = {}
 
     @property
     def model(self):
@@ -87,7 +106,7 @@ class NeuralNetwork:
     def get_early_stopping(self):
         return tf.keras.callbacks.EarlyStopping(monitor='val_accuracy',
                                                 min_delta=0,
-                                                patience=self.args.patience,
+                                                patience=self.patience,
                                                 verbose=1,
                                                 mode='max',
                                                 baseline=None,
@@ -95,18 +114,18 @@ class NeuralNetwork:
 
     # TODO: How to use X_valid and y_valid without passing them
     def fit(self, X_train, y_train, X_valid, y_valid) -> None:
-        X_y_train = NeuralNetwork.get_tf_dataset(X_train, y_train).shuffle(500).batch(self.args.batch_size)
+        X_y_train = NeuralNetwork.get_tf_dataset(X_train, y_train).shuffle(500).batch(self.batch_size)
 
-        X_y_valid = NeuralNetwork.get_tf_dataset(X_valid, y_valid).shuffle(500).batch(self.args.batch_size)
+        X_y_valid = NeuralNetwork.get_tf_dataset(X_valid, y_valid).shuffle(500).batch(self.batch_size)
         self.train_history = self.model.fit(X_y_train,
                                             validation_data=X_y_valid,
                                             epochs=1000,
                                             callbacks=[self.get_early_stopping()]).history
 
-    def predict(self, X_valid: np.ndarray) -> np.ndarray:
+    def predict(self, X_valid: NDArray) -> NDArray:
         return self.model.predict(X_valid)
 
-    def evaluate(self, X_valid: np.ndarray, y_valid: np.ndarray) -> Any:
+    def evaluate(self, X_valid: NDArray, y_valid: NDArray) -> Any:
         return self.model.evaluate(X_valid, y_valid)
 
 
@@ -145,7 +164,7 @@ class ClassificationTransformer(ClassificationModel):
         return correct / len(gold)
 
     @staticmethod
-    def _reformat_test(pairs: np.ndarray) -> pd.DataFrame:
+    def _reformat_test(pairs: NDArray) -> pd.DataFrame:
         """
         Retrieve a regular list from the numpy array
         The output is a list that contains lists ([MT,PE]) with each sentence pair.
@@ -162,7 +181,7 @@ class ClassificationTransformer(ClassificationModel):
         return test_df
 
     @staticmethod
-    def _reformat_train(pairs: np.ndarray, labels: np.ndarray) -> pd.DataFrame:
+    def _reformat_train(pairs: NDArray, labels: NDArray) -> pd.DataFrame:
         """
         Retrieve a regular list from the numpy array
         The output is a list that contains lists ([MT,PE,label]) from each sentence pair.

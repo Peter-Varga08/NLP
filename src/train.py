@@ -7,6 +7,7 @@ from typing import Union
 
 import numpy as np
 import pandas as pd
+import wandb
 from scikeras.wrappers import KerasClassifier
 from simpletransformers.config.model_args import ClassificationArgs
 from sklearn.ensemble import RandomForestClassifier
@@ -98,7 +99,9 @@ def train_parser() -> argparse.Namespace:
 
 
 if __name__ == "__main__":
+    wandb.init(project="NLP", entity="petervarga")
     args = train_parser()
+    wandb.config.update(args)
 
     # Create the correct splits for cross-validation
     skf = StratifiedKFold(n_splits=10, shuffle=True, random_state=42)
@@ -192,16 +195,18 @@ if __name__ == "__main__":
                 model = RandomForestClassifier(n_estimators=args.n_estimators,
                                                max_depth=args.max_depth,
                                                min_samples_split=args.min_samples,
-                                               random_state=42)
+                                               random_state=42,
+                                               n_jobs=-1)
             else:
                 param_grid = {'n_estimators': [50, 100, 200, 500],
                               'max_depth': [3, 5, 10, 15],
                               'min_samples_split': [2, 3, 4, 5, 6, 7]}
-                model = GridSearchCV(estimator=RandomForestClassifier(),
+                model = GridSearchCV(estimator=RandomForestClassifier(n_jobs=-1),
                                      param_grid=param_grid,
                                      cv=10,
                                      scoring=['f1_samples', 'accuracy'],
-                                     refit='accuracy')
+                                     refit='accuracy',
+                                     verbose=1)
         else:
             raise SyntaxError("In order to perform training, specification of subparser is required.")
 
@@ -216,6 +221,9 @@ if __name__ == "__main__":
                                  axis='columns')
         else:
             print("Loading only logging features...")
+
+        # # dummy log
+        # wandb.log({"table": df_train})
 
         # TODO: 2022.06.12: ValueError: Found input variables with inconsistent numbers of samples: [780, 120]
         X = df_train.to_numpy()
@@ -232,7 +240,13 @@ if __name__ == "__main__":
 
             # TODO: make sure all models share same interface
             model.fit(X_train_scaled, y_train_encoded)
-            preds = model.predict(X_valid_scaled)
-            print(classification_report([np.argmax(gt) for gt in y_valid_encoded], [np.argmax(yp) for yp in preds]))
-            print(accuracy_score([np.argmax(yp) for yp in preds], [np.argmax(gt) for gt in y_valid_encoded]))
+            y_preds = model.predict(X_valid_scaled)
+            y_preds_argmax = np.array([np.argmax(y) for y in y_preds])
+            y_valid_argmax = np.array([np.argmax(y) for y in y_valid])
+
+            results = {'classification_report': classification_report(y_valid_encoded, y_preds),
+                       'accuracy_score': accuracy_score(y_preds, y_valid_encoded)}
+            wandb.log(results)
+            wandb.sklearn.plot_precision_recall(y_valid_argmax, y_preds_argmax, ["editor"])
+            wandb.sklearn.plot_feature_importances(model, df_train.columns)
         # TODO: save models

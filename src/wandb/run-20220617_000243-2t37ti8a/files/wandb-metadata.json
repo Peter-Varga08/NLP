@@ -1,0 +1,24 @@
+{
+    "os": "Linux-5.17.13-200.fc35.x86_64-x86_64-with-glibc2.34",
+    "python": "3.8.13",
+    "heartbeatAt": "2022-06-16T22:02:45.057835",
+    "startedAt": "2022-06-16T22:02:43.149905",
+    "docker": null,
+    "cpu_count": 8,
+    "cuda": null,
+    "args": [
+        "ML_CLF_RF"
+    ],
+    "state": "running",
+    "program": "train.py",
+    "codePath": "src/train.py",
+    "git": {
+        "remote": "git@github.com:Peter-Varga08/NLP.git",
+        "commit": "0902024b7b4bee8a155b80c5e54a6e4c9f7b4d4a"
+    },
+    "email": "varga.peter826@gmail.com",
+    "root": "/home/peter.local/NLP",
+    "host": "fedora",
+    "username": "peter.local",
+    "executable": "/home/peter.local/NLP/venv/bin/python"
+}
