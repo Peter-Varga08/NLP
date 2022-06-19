@@ -4,6 +4,7 @@ Example usage: python train.py ML_CLF_RF
 
 import argparse
 from typing import Union
+from numpy.typing import NDArray
 
 import numpy as np
 import pandas as pd
@@ -13,13 +14,49 @@ from simpletransformers.config.model_args import ClassificationArgs
 from sklearn.ensemble import RandomForestClassifier
 from sklearn.metrics import classification_report, accuracy_score
 from sklearn.metrics import f1_score
-from sklearn.model_selection import StratifiedKFold, GridSearchCV
+from sklearn.model_selection import StratifiedKFold, GridSearchCV, train_test_split
 from sklearn.svm import LinearSVC
+from sklearn.preprocessing import LabelBinarizer
 
 import utils_pipeline
 from enums import Split
 from model import ClassificationTransformer, NeuralNetwork, RegressionModel
 
+MLModel = Union[RandomForestClassifier, LinearSVC, RegressionModel, KerasClassifier]
+
+def train_kfold(model: MLModel, X: NDArray, y: NDArray, encoder: LabelBinarizer):
+    """Train a model using logging/linguistic features with k-fold split."""
+    skf = StratifiedKFold(n_splits=10, shuffle=True, random_state=42)
+    for train_index, valid_index in skf.split(X, y):
+        X_train, X_valid = X[train_index], X[valid_index]
+        y_train, y_valid = y[train_index], y[valid_index]
+        y_train_encoded, y_valid_encoded = encoder.transform(y[train_index]), encoder.transform(y[valid_index])
+        X_train_scaled, X_valid_scaled = utils_pipeline.scaling(X_train, X_valid)
+
+        # TODO: make sure all models share same interface
+        model.fit(X_train_scaled, y_train_encoded)
+        y_preds = model.predict(X_valid_scaled)
+        y_preds_argmax = np.array([np.argmax(y) for y in y_preds])
+        y_valid_argmax = np.array([np.argmax(y) for y in y_valid])
+
+        results = {'classification_report': classification_report(y_valid_encoded, y_preds),
+                   'accuracy_score': accuracy_score(y_preds, y_valid_encoded)}
+        wandb.log(results)
+        wandb.sklearn.plot_precision_recall(y_valid_argmax, y_preds_argmax, ["editor"])
+        wandb.sklearn.plot_feature_importances(model, df_train.columns)
+    # TODO: save models
+
+def gridsearch_cv(model: MLModel, X: NDArray, y: NDArray):
+    """Train a model using GridSearchCV."""
+    X_train, y_train, X_valid, y_valid = train_test_split(X, y, train_size=0.9, shuffle=True, stratify=True)
+    X_train_scaled, X_valid_scaled = utils_pipeline.scaling(X_train, X_valid)
+    y_train_encoded, y_valid_encoded = y_encoder.transform(y_train), y_encoder.transform(y_valid)
+    model.fit(X_train_scaled, y_train_encoded)
+    print(sorted(model.cv_results_.keys()))
+    pass
+
+def train_bert(model: ClassificationTransformer, data: pd.DataFrame):
+    pass
 
 def train_parser() -> argparse.Namespace:
     parser = argparse.ArgumentParser()
@@ -98,15 +135,38 @@ def train_parser() -> argparse.Namespace:
     return parser.parse_args()
 
 
+
+
 if __name__ == "__main__":
     wandb.init(project="NLP", entity="petervarga")
     args = train_parser()
     wandb.config.update(args)
 
-    # Create the correct splits for cross-validation
-    skf = StratifiedKFold(n_splits=10, shuffle=True, random_state=42)
-    df_train = utils_pipeline.load_dataframe(split=Split.TRAIN, only_numeric=True)
+    # TODO: NeuralNetwork
+    param_grid = {'NeuralNetwork': {},
+                  'Regression': {'alpha': [0.5, 1, 2, 5, 10],
+                                 'l1_ratio': [0.1, 0.25, 0.5, 0.75, 1],
+                                 'max_iter': [100, 500, 1000, 2000],
+                                 'tol': [1e-5, 5e-5,
+                                         1e-4, 5e-4,
+                                         1e-3, 5e-3,
+                                         1e-2, 5e-2],
+                                 'selection': ['cyclic', 'random']},
+                  'RandomForest': {'n_estimators': [50, 100, 200, 500],
+                                   'max_depth': [3, 5, 10, 15],
+                                   'min_samples_split': [2, 3, 4, 5, 6, 7]},
+                  'LinearSVC': {'C': [1, 1.5, 5, 10],
+                                'tol': [1e-5, 5e-5,
+                                        1e-4, 5e-4,
+                                        1e-3, 5e-3,
+                                        1e-2, 5e-2],
+                                'loss': ['hinge', 'squared_hinge'],
+                                'penalty': ['l1', 'l2'],
+                                'max_iter': [100, 250, 500, 1000, 2000]}}
 
+    # |--------------------------|
+    # |       MODEL LOADING      |
+    # |--------------------------|
     # BERT
     # ---------------------------------------------------------------------
     if hasattr(args, 'subparser_bert'):
@@ -119,11 +179,9 @@ if __name__ == "__main__":
         model_args.silence = True
         model = ClassificationTransformer(args.bert_config, model_args)
 
-        X = None
-        y = None
         # TODO: Add BERT training steps
+        # train_bert()
     else:
-
         # Neural Network
         # ---------------------------------------------------------------------
         if hasattr(args, 'subparser_nn'):
@@ -134,10 +192,7 @@ if __name__ == "__main__":
                                         batch_size=args.batch_size, epochs=args.epochs, verbose=1)
             else:
                 # TODO: add GridSearchCV to KerasCLassifier
-                param_grid = {
-                    'lr': []
-                }
-                pass
+                model = None
         # Regressor
         # ---------------------------------------------------------------------
         elif hasattr(args, 'subparser_ml_reg'):
@@ -152,16 +207,8 @@ if __name__ == "__main__":
                                         tol=args.tol,
                                         selection=args.selection)
             else:
-                param_grid = {'alpha': [0.5, 1, 2, 5, 10],
-                              'l1_ratio': [0.1, 0.25, 0.5, 0.75, 1],
-                              'max_iter': [100, 500, 1000, 2000],
-                              'tol': [1e-5, 5e-5,
-                                      1e-4, 5e-4,
-                                      1e-3, 5e-3,
-                                      1e-2, 5e-2],
-                              'selection': ['cyclic', 'random']}
                 model = GridSearchCV(estimator=RegressionModel(args.model),
-                                     param_grid=param_grid,
+                                     param_grid=param_grid["Regression"],
                                      cv=10,
                                      n_jobs=args.n_jobs,
                                      scoring=[f1_score, accuracy_score])
@@ -175,16 +222,8 @@ if __name__ == "__main__":
                                   penalty=args.penalty,
                                   max_iter=args.max_iter)
             else:
-                param_grid = {'C': [1, 1.5, 5, 10],
-                              'tol': [1e-5, 5e-5,
-                                      1e-4, 5e-4,
-                                      1e-3, 5e-3,
-                                      1e-2, 5e-2],
-                              'loss': ['hinge', 'squared_hinge'],
-                              'penalty': ['l1', 'l2'],
-                              'max_iter': [100, 250, 500, 1000, 2000]}
                 model = GridSearchCV(estimator=LinearSVC(),
-                                     param_grid=param_grid,
+                                     param_grid=param_grid["LinearSVC"],
                                      cv=10,
                                      n_jobs=-args.n_jobs,
                                      scoring=['f1_samples', 'accuracy'])
@@ -198,55 +237,35 @@ if __name__ == "__main__":
                                                random_state=42,
                                                n_jobs=-1)
             else:
-                param_grid = {'n_estimators': [50, 100, 200, 500],
-                              'max_depth': [3, 5, 10, 15],
-                              'min_samples_split': [2, 3, 4, 5, 6, 7]}
                 model = GridSearchCV(estimator=RandomForestClassifier(n_jobs=-1),
-                                     param_grid=param_grid,
+                                     param_grid=param_grid['RandomForest'],
                                      cv=10,
-                                     scoring=['f1_samples', 'accuracy'],
-                                     refit='accuracy',
+                                     scoring=['accuracy'],
                                      verbose=1)
         else:
             raise SyntaxError("In order to perform training, specification of subparser is required.")
 
-        # if args.features == "log", no change is required
+        # |--------------------------|
+        # |       DATA LOADING       |
+        # |--------------------------|
         if args.features == 'ling':
             print("Loading linguistic features only...")
             df_train = utils_pipeline.get_ling_feats(Split.TRAIN)
         elif args.features == 'both':
             print("Loading linguistic and logging features...")
+            df_train_log = utils_pipeline.load_dataframe(split=Split.TRAIN, only_numeric=True)
             df_train_ling = utils_pipeline.get_ling_feats()
-            df_train = pd.concat([df_train.reset_index(drop=True), df_train_ling.reset_index(drop=True)],
+            df_train = pd.concat([df_train_log.reset_index(drop=True), df_train_ling.reset_index(drop=True)],
                                  axis='columns')
         else:
             print("Loading only logging features...")
-
-        # # dummy log
-        # wandb.log({"table": df_train})
-
-        # TODO: 2022.06.12: ValueError: Found input variables with inconsistent numbers of samples: [780, 120]
+            df_train = utils_pipeline.load_dataframe(split=Split.TRAIN, only_numeric=True)
         X = df_train.to_numpy()
         y = utils_pipeline.get_labels(Split.TRAIN)
         # import pdb; pdb.set_trace()
         y_encoder = utils_pipeline.get_label_encoder(Split.TRAIN)
 
-        # Do StratifiedKfold training
-        for train_index, valid_index in skf.split(X, y):
-            X_train, X_valid = X[train_index], X[valid_index]
-            y_train, y_valid = y[train_index], y[valid_index]
-            y_train_encoded, y_valid_encoded = y_encoder.transform(y[train_index]), y_encoder.transform(y[valid_index])
-            X_train_scaled, X_valid_scaled = utils_pipeline.scaling(X_train, X_valid)
-
-            # TODO: make sure all models share same interface
-            model.fit(X_train_scaled, y_train_encoded)
-            y_preds = model.predict(X_valid_scaled)
-            y_preds_argmax = np.array([np.argmax(y) for y in y_preds])
-            y_valid_argmax = np.array([np.argmax(y) for y in y_valid])
-
-            results = {'classification_report': classification_report(y_valid_encoded, y_preds),
-                       'accuracy_score': accuracy_score(y_preds, y_valid_encoded)}
-            wandb.log(results)
-            wandb.sklearn.plot_precision_recall(y_valid_argmax, y_preds_argmax, ["editor"])
-            wandb.sklearn.plot_feature_importances(model, df_train.columns)
-        # TODO: save models
+        if not args.grid:
+            train_kfold(model, X, y, y_encoder)
+        else:
+            gridsearch_cv(model, X, y)
