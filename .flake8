@@ -7,7 +7,4 @@ show_source = False
 spellcheck-targets = comments
 multiline-quotes = """
 docstring-quotes = """
-ignore = Q000
-
-[black]
-line-length = 120
+ignore = Q000, W503

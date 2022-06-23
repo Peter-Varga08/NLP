@@ -14,17 +14,12 @@ repos:
       - id: requirements-txt-fixer
         name: requirements-txt-sorter
 
-  - repo: https://github.com/pre-commit/mirrors-autopep8
-    rev: v1.6.0
+  - repo: https://github.com/psf/black
+    rev: 22.3.0
     hooks:
-      - id: autopep8
-        name: autopep8_code_formatter
-
-  - repo: https://github.com/PyCQA/isort
-    rev: 5.10.1
-    hooks:
-      - id: isort
-        name: isort_module_import_formatter
+      - id: black
+        name: black_code_formatter
+        language: python
 
   - repo: https://github.com/PyCQA/flake8
     rev: 4.0.1
@@ -32,11 +27,4 @@ repos:
       - id: flake8
         name: flake8_linter
         always_run: true
-        language: python
-
-  - repo: https://github.com/psf/black
-    rev: 22.3.0
-    hooks:
-      - id: black
-        name: black_code_formatter
         language: python

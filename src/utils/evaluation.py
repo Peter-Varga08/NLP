@@ -6,7 +6,7 @@ Description:
    This program compares system output for subject (post-editor) prediction with the gold standard (test file).
 
 Usage example:
-   python3 utils_evaluate.py -g [TEST FILE] -s [SYSTEM OUTPUT]
+   python3 evaluation.py -g [TEST FILE] -s [SYSTEM OUTPUT]
 
    where TEST FILE is the official test file sent via mail: test.tsv
    and SYSTEM OUTPUT is a .txt file with predictions, consisting of one line of predictions, for example:
@@ -15,16 +15,23 @@ Usage example:
 
 import argparse
 
-import numpy as np
-import pandas as pd
-
 
 def create_arg_parser():
     parser = argparse.ArgumentParser()
-    parser.add_argument("-g", "--gold_standard", default='./data/IK_NLP_22_PESTYLE/test.tsv',
-                        type=str, help="Official test file")
-    parser.add_argument("-s", "--system_output", default='./transformer_predictions.txt',
-                        type=str, help="Location of test file.")
+    parser.add_argument(
+        "-g",
+        "--gold_standard",
+        default="./data/IK_NLP_22_PESTYLE/test.tsv",
+        type=str,
+        help="Official test file",
+    )
+    parser.add_argument(
+        "-s",
+        "--system_output",
+        default="./transformer_predictions.txt",
+        type=str,
+        help="Location of test file.",
+    )
     return parser.parse_args()
 
 
@@ -92,7 +99,7 @@ def main():
     correct_predictions = get_correct_predictions(gold, pred)
 
     # Print error report
-    print('Number of predictions:', len(pred))
+    print("Number of predictions:", len(pred))
     print("ABSOLUTE NUMBER OF CORRECT PREDICTIONS: ", correct_predictions)
     print("ACCURACY: ", correct_predictions / len(gold))
 
