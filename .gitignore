@@ -3,7 +3,8 @@ wandb/
 *wandb/
 
 # Dataset
-data/IK_NLP_22_PESTYLE/
+data/IK_NLP_22_PESTYLE.zip
+data/*.ipynb
 */IK_NLP_22_PESTYLE
 
 # Byte-compiled / optimized / DLL files
