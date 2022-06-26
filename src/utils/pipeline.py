@@ -5,6 +5,7 @@ import numpy as np
 import pandas as pd
 from datasets import load_dataset
 from matplotlib import pyplot as plt
+from numpy import ndarray
 from sklearn.ensemble import RandomForestClassifier
 from sklearn.feature_selection import SelectKBest
 from sklearn.linear_model import LinearRegression
@@ -76,7 +77,8 @@ def get_label_encoder(split: Split):
 def scaling(X_train, *X_valid):
     scale = StandardScaler()
     X_train = scale.fit_transform(X_train)
-    if X_valid is not None:
+    if len(X_valid) == 1 and isinstance(X_valid[0], ndarray):
+        X_valid = X_valid[0]
         X_valid = scale.transform(X_valid)
         return X_train, X_valid
     return X_train

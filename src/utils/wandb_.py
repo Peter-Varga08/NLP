@@ -1,13 +1,15 @@
 import wandb
+from utils.metrics import ExplainedClfReport
 
 
-def log_results(results):
-    wandb.log(results)
-
-
-def plot_precision_recall(y_true, y_pred, labels):
-    wandb.sklearn.plot_precision_recall(y_true, y_pred, labels)
-
-
-def plot_feature_importances(model, feature_names):
-    wandb.sklearn.plot_feature_importances(model, feature_names)
+def create_clf_report_table(
+    clf_report: ExplainedClfReport, table_name: str = None
+) -> None:
+    """
+    Reformat an ExplainedClfReport type object into the format required by WANDB.
+    """
+    my_table = wandb.Table(
+        columns=list(clf_report["0"].keys()),
+        data=[row.values() for row in clf_report.values()],
+    )
+    wandb.log({table_name: my_table})
