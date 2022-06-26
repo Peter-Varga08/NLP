@@ -2,24 +2,29 @@ from enum import Enum
 
 
 class Split(str, Enum):
-    TRAIN = 'train'
-    TEST = 'test'
+    TRAIN = "train"
+    TEST = "test"
 
 
 class Modality(str, Enum):
-    SCRATCH = 'ht'
-    GOOGLE = 'pe1'
-    MBART = 'pe2'
+    SCRATCH = "ht"
+    GOOGLE = "pe1"
+    MBART = "pe2"
 
 
 class ConfigMode(str, Enum):
-    FULL = 'full'
-    MASK_SUBJECT = 'mask_subject'
-    MASK_MODALITY = 'mask_modality'
-    MASK_TIME = 'mask_time'
+    FULL = "full"
+    MASK_SUBJECT = "mask_subject"
+    MASK_MODALITY = "mask_modality"
+    MASK_TIME = "mask_time"
 
 
 class DatasetType(str, Enum):
-    LOGGING = 'logging'
-    LINGUISTIC = 'linguistic'
-    BOTH = 'both'
+    LOGGING = "logging"
+    LINGUISTIC = "linguistic"
+    BOTH = "both"
+
+
+class MetricType(str, Enum):
+    CLF_REPORT = "clf_report"
+    ACCURACY_SCORE = "accuracy_score"
