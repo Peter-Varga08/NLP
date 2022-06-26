@@ -3,23 +3,23 @@ Example usage: python train.py ML_CLF_RF
 """
 
 import argparse
-from typing import Union
+from typing import List, Union
 
-import numpy as np
 import pandas as pd
 from numpy.typing import NDArray
 from scikeras.wrappers import KerasClassifier
 from simpletransformers.config.model_args import ClassificationArgs
 from sklearn.ensemble import RandomForestClassifier
-from sklearn.metrics import accuracy_score, classification_report, f1_score
+from sklearn.metrics import (accuracy_score, f1_score,
+                             precision_recall_fscore_support)
 from sklearn.model_selection import GridSearchCV, ShuffleSplit, StratifiedKFold
 from sklearn.preprocessing import LabelBinarizer
 from sklearn.svm import LinearSVC
 
-from enums import Split
+import wandb
+from enums import MetricType, Split
 from model import ClassificationTransformer, NeuralNetwork, RegressionModel
-from utils import pipeline
-from utils.wandb_ import log_results, plot_feature_importances, plot_precision_recall
+from utils import metrics, pipeline, wandb_
 
 MLModel = Union[RandomForestClassifier, LinearSVC, RegressionModel, KerasClassifier]
 SPLITS = 10
@@ -29,34 +29,36 @@ def train_kfold(
     model: MLModel, X: NDArray, y: NDArray, encoder: LabelBinarizer, splits: int = 10
 ):
     """Train a model using logging/linguistic features with k-fold split."""
+    clf_report: List
+    accuracy: List[float]
+
     skf = StratifiedKFold(n_splits=splits, shuffle=True, random_state=42)
+    clf_report = []
+    accuracy = []
     for train_index, valid_index in skf.split(X, y):
         X_train, X_valid = X[train_index], X[valid_index]
         y_train, y_valid = y[train_index], y[valid_index]
         y_train_encoded, y_valid_encoded = encoder.transform(
             y_train,
         ), encoder.transform(y_valid)
+
         X_train_scaled, X_valid_scaled = pipeline.scaling(X_train, X_valid)
 
         # TODO: make sure all models share same interface
         model.fit(X_train_scaled, y_train_encoded)
         y_preds = model.predict(X_valid_scaled)
-        y_preds_argmax = np.array([np.argmax(y) for y in y_preds])
-        y_valid_argmax = np.array([np.argmax(y) for y in y_valid])
+        # y_preds_argmax = np.array([np.argmax(y) for y in y_preds])
+        # y_valid_argmax = np.array([np.argmax(y) for y in y_valid])
 
-        result = {
-            "classification_report": classification_report(y_valid_encoded, y_preds),
-            "accuracy_score": accuracy_score(y_preds, y_valid_encoded),
-        }
+        clf_report.append(precision_recall_fscore_support(y_valid_encoded, y_preds))
+        accuracy.append(accuracy_score(y_valid_encoded, y_preds))
 
-        log_results(result)
-        plot_precision_recall(
-            np.array(y_valid_argmax).reshape(-1, 1),
-            np.array(y_preds).reshape(-1, 1),
-            ["editor"],
-        )
-        yield result, y_preds_argmax, y_valid_argmax
-    # TODO: save models
+    result = {
+        MetricType.CLF_REPORT: clf_report,
+        MetricType.ACCURACY_SCORE: accuracy,
+    }
+
+    return result
 
 
 def train_bert(model: ClassificationTransformer, data: pd.DataFrame):
@@ -70,12 +72,12 @@ def train_parser() -> argparse.Namespace:
     # |-----------------------------------------|
     # |            BASE ARGUMENTS               |
     # |-----------------------------------------|
-    parser.add_argument(
-        "-r",
-        "--result_path",
-        default="./transformer_predictions.txt",
-        help="Directory where to save results.",
-    )
+    # parser.add_argument(
+    #     "-r",
+    #     "--result_path",
+    #     default="./transformer_predictions.txt",
+    #     help="Directory where to save results.",
+    # )
     parser.add_argument(
         "-tr",
         "--train_file",
@@ -132,6 +134,7 @@ def train_parser() -> argparse.Namespace:
     # TODO: add separate subparser for each regressor; writing a wrapper just to save
     # 10 lines of code is not worth it
     regressor_parser = subparsers.add_parser("ML_REG")
+
     # Common regressor params
     regressor_parser.add_argument(
         "-m",
@@ -148,8 +151,10 @@ def train_parser() -> argparse.Namespace:
         action="store_true",
         help="Subtract mean and divide by L2-norm.",
     )
+
     # LinearRegression() params
     regressor_parser.add_argument("--n_jobs", type=int, default=-1)
+
     # Ridge() and ElasticNet() params
     regressor_parser.add_argument(
         "-a",
@@ -158,6 +163,7 @@ def train_parser() -> argparse.Namespace:
         default=1,
         help="Control L2 term by multiplication with alpha, in [0, inf].",
     )
+
     # ElasticNet() params
     regressor_parser.add_argument(
         "-l1",
@@ -191,6 +197,7 @@ def train_parser() -> argparse.Namespace:
         default=1.0,
     )
     svc_parser.add_argument("--max_iter", type=int, default=1000)
+
     # 2) RandomForest
     randomforest_parser = subparsers.add_parser("ML_CLF_RF")
     randomforest_parser.add_argument(
@@ -215,9 +222,8 @@ def train_parser() -> argparse.Namespace:
 
 
 if __name__ == "__main__":
-    import wandb
 
-    wandb.init(project="NLP", entity="petervarga")
+    wandb.init(project="NLP", entity="petervarga", name="suhano nyilvesszo")
     args = train_parser()
     wandb.config.update(args)
 
@@ -366,15 +372,20 @@ if __name__ == "__main__":
             df_train = pipeline.load_dataframe(split=Split.TRAIN, only_numeric=True)
         X = df_train.to_numpy()
         y = pipeline.get_labels(Split.TRAIN)
-        # import pdb; pdb.set_trace()
+
         y_encoder = pipeline.get_label_encoder(Split.TRAIN)
 
         if not args.grid:
-            # TODO: fix generator yield
-            for i in range(SPLITS):  # Kfold with a generator
-                _ = train_kfold(model, X, y, y_encoder, splits=SPLITS)
-                # plot_precision_recall(y_valids, y_preds, ["editor"])
-            plot_feature_importances(model, df_train.columns)
+            scores = train_kfold(model, X, y, y_encoder, splits=SPLITS)
+            score = metrics.get_avg_score(scores)
+
+            # LOG TO WANDB
+            score[MetricType.CLF_REPORT] = metrics.explain_clf_score(
+                score[MetricType.CLF_REPORT]
+            )
+            wandb.log(score)
+            wandb.log(wandb_.create_clf_report_table(score[MetricType.CLF_REPORT]))
+            # plot_feature_importances(model, df_train.columns)
         else:
             # TODO: fix reshape
             X_train_scaled = pipeline.scaling(X.reshape(-1, 1))
