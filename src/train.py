@@ -3,6 +3,7 @@ Example usage: python train.py ML_CLF_RF
 """
 
 import argparse
+import pprint
 from typing import List, Union
 
 import pandas as pd
@@ -10,25 +11,29 @@ from numpy.typing import NDArray
 from scikeras.wrappers import KerasClassifier
 from simpletransformers.config.model_args import ClassificationArgs
 from sklearn.ensemble import RandomForestClassifier
-from sklearn.metrics import (accuracy_score, f1_score,
-                             precision_recall_fscore_support)
+from sklearn.linear_model import ElasticNet
+from sklearn.metrics import accuracy_score, f1_score, precision_recall_fscore_support
 from sklearn.model_selection import GridSearchCV, ShuffleSplit, StratifiedKFold
 from sklearn.preprocessing import LabelBinarizer
 from sklearn.svm import LinearSVC
 
-import wandb
 from enums import MetricType, Split
 from model import ClassificationTransformer, NeuralNetwork, RegressionModel
-from utils import metrics, pipeline, wandb_
+from utils import metrics, pipeline
+from utils.pipeline import threshold_regression_prediction
 
 MLModel = Union[RandomForestClassifier, LinearSVC, RegressionModel, KerasClassifier]
 SPLITS = 10
 
 
 def train_kfold(
-    model: MLModel, X: NDArray, y: NDArray, encoder: LabelBinarizer, splits: int = 10
+    model: MLModel,
+    X: NDArray,
+    y: NDArray,
+    encoder: LabelBinarizer = None,
+    splits: int = 10,
 ):
-    """Train a model using logging/linguistic features with k-fold split."""
+    """Train a model using logging/linguistic features with k-fold split and one-hot encoded labels."""
     clf_report: List
     accuracy: List[float]
 
@@ -38,20 +43,18 @@ def train_kfold(
     for train_index, valid_index in skf.split(X, y):
         X_train, X_valid = X[train_index], X[valid_index]
         y_train, y_valid = y[train_index], y[valid_index]
-        y_train_encoded, y_valid_encoded = encoder.transform(
-            y_train,
-        ), encoder.transform(y_valid)
-
+        if encoder:
+            y_train, y_valid = encoder.transform(
+                y_train,
+            ), encoder.transform(y_valid)
         X_train_scaled, X_valid_scaled = pipeline.scaling(X_train, X_valid)
-
-        # TODO: make sure all models share same interface
-        model.fit(X_train_scaled, y_train_encoded)
+        model = model.fit(X_train_scaled, y_train)
         y_preds = model.predict(X_valid_scaled)
-        # y_preds_argmax = np.array([np.argmax(y) for y in y_preds])
-        # y_valid_argmax = np.array([np.argmax(y) for y in y_valid])
 
-        clf_report.append(precision_recall_fscore_support(y_valid_encoded, y_preds))
-        accuracy.append(accuracy_score(y_valid_encoded, y_preds))
+        if model._estimator_type == "regressor":
+            y_preds = threshold_regression_prediction(y_preds)
+        clf_report.append(precision_recall_fscore_support(y_valid, y_preds))
+        accuracy.append(accuracy_score(y_valid, y_preds))
 
     result = {
         MetricType.CLF_REPORT: clf_report,
@@ -98,11 +101,12 @@ def train_parser() -> argparse.Namespace:
         help="Whether to enable or disable logging.",
     )
     parser.add_argument("--grid", action="store_true")
+    parser.add_argument("--encoder", action="store_true")
     # |-----------------------------------------|
     # |            BERT MODEL                   |
     # |-----------------------------------------|
     bert_parser = subparsers.add_parser("BERT")
-    bert_parser.add_argument("--subparser_bert", default=True)
+    bert_parser.add_argument("-subparser", "--subparser_bert", default=True)
     bert_parser.add_argument(
         "-c",
         "--bert_config",
@@ -115,6 +119,7 @@ def train_parser() -> argparse.Namespace:
     # |-----------------------------------------|
     # Specified parameters based training
     nn_parser = subparsers.add_parser("NN")
+    nn_parser.add_argument("-subparser", "--subparser_nn", default=True)
     nn_parser.add_argument(
         "-es",
         "--early_stopping",
@@ -134,7 +139,7 @@ def train_parser() -> argparse.Namespace:
     # TODO: add separate subparser for each regressor; writing a wrapper just to save
     # 10 lines of code is not worth it
     regressor_parser = subparsers.add_parser("ML_REG")
-
+    regressor_parser.add_argument("-subparser", "--subparser_ml_reg", default=True)
     # Common regressor params
     regressor_parser.add_argument(
         "-m",
@@ -159,8 +164,8 @@ def train_parser() -> argparse.Namespace:
     regressor_parser.add_argument(
         "-a",
         "--alpha",
-        type=Union[float, int],
-        default=1,
+        type=float,
+        default=1.0,
         help="Control L2 term by multiplication with alpha, in [0, inf].",
     )
 
@@ -188,8 +193,11 @@ def train_parser() -> argparse.Namespace:
     # |-----------------------------------------|
     # 1) LinearSVC
     svc_parser = subparsers.add_parser("ML_CLF_SVC")
-    svc_parser.add_argument("--penalty", type=str, choices=["l1", "l2"])
-    svc_parser.add_argument("--loss", type=str, choices=["hinge", "squared_hinge"])
+    svc_parser.add_argument("-subparser", "--subparser_ml_clf_svc", default=True)
+    svc_parser.add_argument("--penalty", type=str, choices=["l1", "l2"], default="l2")
+    svc_parser.add_argument(
+        "--loss", type=str, choices=["hinge", "squared_hinge"], default="squared_hinge"
+    )
     svc_parser.add_argument(
         "--C",
         type=float,
@@ -197,6 +205,7 @@ def train_parser() -> argparse.Namespace:
         default=1.0,
     )
     svc_parser.add_argument("--max_iter", type=int, default=1000)
+    svc_parser.add_argument("--tol", type=float, default=1e-4)
 
     # 2) RandomForest
     randomforest_parser = subparsers.add_parser("ML_CLF_RF")
@@ -221,11 +230,119 @@ def train_parser() -> argparse.Namespace:
     return parser.parse_args()
 
 
+def select_model(args: argparse.Namespace) -> Union[MLModel, ClassificationTransformer]:
+    # |--------------------|
+    # |       BERT         |
+    # |--------------------|
+    if hasattr(args, "subparser_bert"):
+        # Define model
+        model_args = ClassificationArgs()
+        model_args.num_train_epochs = 3
+        model_args.overwrite_output_dir = True
+        model_args.learning_rate = 0.000001
+        model_args.do_lower_case = True
+        model_args.silence = True
+        model = ClassificationTransformer(args.bert_config, model_args)
+    else:
+        # |--------------------|
+        # |   Neural Network   |
+        # |--------------------|
+        if hasattr(args, "subparser_nn"):
+            if not args.grid:
+                nn = NeuralNetwork(
+                    input_len=args.input_len, lr=args.lr, clipvalue=args.clip_value
+                )
+                # TODO: fix
+                model = KerasClassifier(
+                    nn.model, batch_size=args.batch_size, epochs=args.epochs, verbose=1
+                )
+            else:
+                # TODO: add GridSearchCV to KerasCLassifier
+                model = None
+        # |--------------------|
+        # |     REGRESSORS     |
+        # |--------------------|
+        elif hasattr(args, "subparser_ml_reg"):
+            if not args.grid:
+                model = ElasticNet(
+                    normalize=args.normalize,
+                    l1_ratio=args.l1_ratio,
+                    precompute=True,
+                    max_iter=args.max_iter,
+                    tol=args.tol,
+                    selection=args.selection,
+                )
+                # model = RegressionModel(
+                #     args.model,
+                #     normalize=args.normalize,
+                #     n_jobs=args.n_jobs,
+                #     alpha=args.alpha,
+                #     l1_ratio=args.l1_ratio,
+                #     precompute=True,
+                #     max_iter=args.max_iter,
+                #     tol=args.tol,
+                #     selection=args.selection,
+                # )
+            else:
+                model = GridSearchCV(
+                    estimator=RegressionModel(args.model),
+                    param_grid=param_grid["Regression"],
+                    cv=cv,
+                    n_jobs=args.n_jobs,
+                    scoring=[f1_score, accuracy_score],
+                )
+        # |--------------------|
+        # |     LinearSVC      |
+        # |--------------------|
+        elif hasattr(args, "subparser_ml_clf_svc"):
+            if not args.grid:
+                model = LinearSVC(
+                    C=args.C,
+                    tol=args.tol,
+                    loss=args.loss,
+                    penalty=args.penalty,
+                    max_iter=args.max_iter,
+                )
+            else:
+                model = GridSearchCV(
+                    estimator=LinearSVC(),
+                    param_grid=param_grid["LinearSVC"],
+                    cv=cv,
+                    n_jobs=-args.n_jobs,
+                    scoring=["f1_samples", "accuracy"],
+                )
+        # |--------------------|
+        # |   RANDOMFOREST CLF |
+        # |--------------------|
+        elif hasattr(args, "subparser_ml_clf_rf"):
+            if not args.grid:
+                model = RandomForestClassifier(
+                    n_estimators=args.n_estimators,
+                    max_depth=args.max_depth,
+                    min_samples_split=args.min_samples,
+                    random_state=42,
+                    n_jobs=-1,
+                )
+            else:
+                model = GridSearchCV(
+                    estimator=RandomForestClassifier(n_jobs=-1),
+                    param_grid=param_grid["RandomForest"],
+                    cv=cv,
+                    scoring=["accuracy"],
+                    verbose=1,
+                )
+        else:
+            raise SyntaxError(
+                "In order to perform training, specification of subparser is required."
+            )
+    return model
+
+
 if __name__ == "__main__":
 
-    wandb.init(project="NLP", entity="petervarga", name="suhano nyilvesszo")
+    # wandb.init(project="NLP", entity="petervarga", name="suhano nyilvesszo")
     args = train_parser()
-    wandb.config.update(args)
+    # wandb.config.update(args)
 
     # TODO: NeuralNetwork
     param_grid = {
@@ -250,109 +367,12 @@ if __name__ == "__main__":
             "max_iter": [100, 250, 500, 1000, 2000],
         },
     }
+
     cv = ShuffleSplit(n_splits=10, test_size=0.1)
+    estimator = select_model(args)
 
-    # |--------------------------|
-    # |       MODEL LOADING      |
-    # |--------------------------|
-    # BERT
-    # ---------------------------------------------------------------------
-    if hasattr(args, "subparser_bert"):
-        # Define model
-        model_args = ClassificationArgs()
-        model_args.num_train_epochs = 3
-        model_args.overwrite_output_dir = True
-        model_args.learning_rate = 0.000001
-        model_args.do_lower_case = True
-        model_args.silence = True
-        model = ClassificationTransformer(args.bert_config, model_args)
-
-        # TODO: Add BERT training steps
-        # train_bert()
-    else:
-        # Neural Network
-        # ---------------------------------------------------------------------
-        if hasattr(args, "subparser_nn"):
-            if not args.grid:
-                nn = NeuralNetwork(
-                    input_len=args.input_len, lr=args.lr, clipvalue=args.clip_value
-                )
-                # TODO: fix
-                model = KerasClassifier(
-                    nn.model, batch_size=args.batch_size, epochs=args.epochs, verbose=1
-                )
-            else:
-                # TODO: add GridSearchCV to KerasCLassifier
-                model = None
-        # Regressor
-        # ---------------------------------------------------------------------
-        elif hasattr(args, "subparser_ml_reg"):
-            if not args.grid:
-                model = RegressionModel(
-                    args.model,
-                    normalize=args.normalize,
-                    n_jobs=args.n_jobs,
-                    alpha=args.alpha,
-                    l1_ratio=args.l1_ratio,
-                    precompute=True,
-                    max_iter=args.max_iter,
-                    tol=args.tol,
-                    selection=args.selection,
-                )
-            else:
-                model = GridSearchCV(
-                    estimator=RegressionModel(args.model),
-                    param_grid=param_grid["Regression"],
-                    cv=cv,
-                    n_jobs=args.n_jobs,
-                    scoring=[f1_score, accuracy_score],
-                )
-        # SVC classifier
-        # ---------------------------------------------------------------------
-        elif hasattr(args, "subparser_ml_clf_svc"):
-            if not args.grid:
-                model = LinearSVC(
-                    C=args.C,
-                    tol=args.tol,
-                    loss=args.tol,
-                    penalty=args.penalty,
-                    max_iter=args.max_iter,
-                )
-            else:
-                model = GridSearchCV(
-                    estimator=LinearSVC(),
-                    param_grid=param_grid["LinearSVC"],
-                    cv=cv,
-                    n_jobs=-args.n_jobs,
-                    scoring=["f1_samples", "accuracy"],
-                )
-        # RandomForest classifier
-        # ---------------------------------------------------------------------
-        elif hasattr(args, "subparser_ml_clf_rf"):
-            if not args.grid:
-                model = RandomForestClassifier(
-                    n_estimators=args.n_estimators,
-                    max_depth=args.max_depth,
-                    min_samples_split=args.min_samples,
-                    random_state=42,
-                    n_jobs=-1,
-                )
-            else:
-                model = GridSearchCV(
-                    estimator=RandomForestClassifier(n_jobs=-1),
-                    param_grid=param_grid["RandomForest"],
-                    cv=cv,
-                    scoring=["accuracy"],
-                    verbose=1,
-                )
-        else:
-            raise SyntaxError(
-                "In order to perform training, specification of subparser is required."
-            )
-
-        # |--------------------------|
-        # |       DATA LOADING       |
-        # |--------------------------|
+    if not isinstance(estimator, ClassificationTransformer):
+        print("Preparing dataset for training Machine Learning model...")
         if args.features == "ling":
             print("Loading linguistic features only...")
             df_train = pipeline.get_ling_feats(Split.TRAIN)
@@ -373,22 +393,32 @@ if __name__ == "__main__":
         X = df_train.to_numpy()
         y = pipeline.get_labels(Split.TRAIN)
 
-        y_encoder = pipeline.get_label_encoder(Split.TRAIN)
+        if args.encoder:
+            y_encoder = pipeline.get_label_encoder(Split.TRAIN)
+        else:
+            y_encoder = None
 
+        print("Training Machine Learning model...")
         if not args.grid:
-            scores = train_kfold(model, X, y, y_encoder, splits=SPLITS)
+
+            scores = train_kfold(estimator, X, y, y_encoder, splits=SPLITS)
             score = metrics.get_avg_score(scores)
 
             # LOG TO WANDB
             score[MetricType.CLF_REPORT] = metrics.explain_clf_score(
                 score[MetricType.CLF_REPORT]
             )
-            wandb.log(score)
-            wandb.log(wandb_.create_clf_report_table(score[MetricType.CLF_REPORT]))
-            # plot_feature_importances(model, df_train.columns)
+            # wandb.log(score)
+            # estimator_name = str(estimator).upper()
+            # wandb.log({estimator_name: wandb_.create_clf_report_table(estimator_name, score[MetricType.CLF_REPORT])})
+            # plot_feature_importances(estimator, df_train.columns)
+            pprint.pprint(score)
         else:
             # TODO: fix reshape
             X_train_scaled = pipeline.scaling(X.reshape(-1, 1))
-            y_train_encoded = y_encoder.transform(y)
-            model.fit(X_train_scaled, y_train_encoded)
-            print(sorted(model.cv_results_.keys()))
+            y = y_encoder.transform(y) if y_encoder else y
+            estimator.fit(X_train_scaled, y)
+            print(sorted(estimator.cv_results_.keys()))
+    else:
+        pass  # TODO: Bert training
+        print("Training BERT model...")

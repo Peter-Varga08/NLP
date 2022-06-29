@@ -21,11 +21,11 @@ repos:
         name: CODE_FORMATTER
         language: python
 
-  - repo: https://github.com/PyCQA/isort
-    rev: 5.10.1
-    hooks:
-      - id: isort
-        name: IMPORT_FORMATTER
+#  - repo: https://github.com/PyCQA/isort
+#    rev: 5.10.1
+#    hooks:
+#      - id: isort
+#        name: IMPORT_FORMATTER
 
   - repo: https://github.com/PyCQA/flake8
     rev: 4.0.1

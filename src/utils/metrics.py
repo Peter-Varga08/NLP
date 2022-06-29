@@ -20,7 +20,7 @@ def get_avg_accuracy(accuracy_scores: AccuracyScores) -> float:
 
 def get_avg_score(scores: Dict[MetricType, Union[ClfReports, AccuracyScores]]):
     """
-    Return average of each key-dict. Requires 'clf_report' and 'accuracy_score' keys.
+    Return average of each passed score. Requires 'clf_report' and 'accuracy_score' keys.
     """
     avg_score = {}
     for metric in scores:
@@ -36,7 +36,7 @@ def get_avg_score(scores: Dict[MetricType, Union[ClfReports, AccuracyScores]]):
 def explain_clf_score(score: NDArray) -> ExplainedClfReport:
     """
     Add 'avg_precision', 'avg_recall', 'avg_f1' 'avg_support', string literals as keys to the raw score values
-    from a precision_recall_fscore_support() call on the K-Fold CV result of ta classifier.
+    from a precision_recall_fscore_support() call on the K-Fold CV result of a classifier.
     """
     return {
         str(idx): {

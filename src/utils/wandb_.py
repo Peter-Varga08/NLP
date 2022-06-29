@@ -2,9 +2,7 @@ import wandb
 from utils.metrics import ExplainedClfReport
 
 
-def create_clf_report_table(
-    clf_report: ExplainedClfReport, table_name: str = None
-) -> None:
+def create_clf_report_table(table_name: str, clf_report: ExplainedClfReport) -> None:
     """
     Reformat an ExplainedClfReport type object into the format required by WANDB.
     """
