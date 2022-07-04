@@ -5,65 +5,7 @@ import tensorflow as tf
 from numpy.typing import NDArray
 from simpletransformers.classification import ClassificationModel
 from simpletransformers.config.model_args import ClassificationArgs
-from sklearn.linear_model import ElasticNet, LinearRegression, Ridge
 from tensorflow.keras.layers import BatchNormalization, Dense, Dropout, Input
-
-
-# TODO: Finish
-class RegressionModel(LinearRegression, Ridge, ElasticNet):
-    def __init__(
-        self,
-        name: str = None,
-        normalize: bool = True,
-        n_jobs=-1,
-        alpha: float = 0.5,
-        l1_ratio: float = 0.5,
-        precompute=True,
-        max_iter: int = 100,
-        tol: float = None,
-        selection: str = "random",
-    ):
-        self.name = name
-        self.normalize = normalize
-        self.n_jobs = n_jobs
-        self.alpha = alpha
-        self.l1_ratio = l1_ratio
-        self.precompute = precompute
-        self.max_iter = max_iter
-        self.tol = tol
-        self.selection = selection
-
-        if self.name == "lr":
-            self.model = LinearRegression(normalize=self.normalize, n_jobs=self.n_jobs)
-            super(LinearRegression, self).__init__()
-
-        elif self.name == "rr":
-            self.model = Ridge(normalize=self.normalize, alpha=self.alpha)
-            super(Ridge, self).__init__()
-        else:
-            self.model = ElasticNet(
-                normalize=self.normalize,
-                l1_ratio=self.l1_ratio,
-                precompute=True,
-                max_iter=self.max_iter,
-                tol=self.tol,
-                selection=self.selection,
-            )
-            super(ElasticNet, self).__init__()
-
-    def __str__(self) -> str:
-        return self.model.__class__.__name__
-
-    def __repr__(self) -> str:
-        return repr(self.model)
-
-
-# class RandomForestClassifier_(RandomForestClassifier):
-#     def __init__(self, kwargs) -> None:
-#         super(RandomForestClassifier_).__init__(**kwargs)
-#
-#     def __str__(self):
-#         return self.__class__.__name__
 
 
 class NeuralNetwork:

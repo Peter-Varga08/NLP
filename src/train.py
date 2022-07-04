@@ -4,25 +4,24 @@ Example usage: python train.py ML_CLF_RF
 
 import argparse
 import pprint
-from typing import List, Union
+from typing import List, Union, Dict
 
 import pandas as pd
 from numpy.typing import NDArray
 from scikeras.wrappers import KerasClassifier
 from simpletransformers.config.model_args import ClassificationArgs
 from sklearn.ensemble import RandomForestClassifier
-from sklearn.linear_model import ElasticNet
-from sklearn.metrics import accuracy_score, f1_score, precision_recall_fscore_support
+from sklearn.linear_model import LogisticRegression
+from sklearn.metrics import accuracy_score, precision_recall_fscore_support
 from sklearn.model_selection import GridSearchCV, ShuffleSplit, StratifiedKFold
 from sklearn.preprocessing import LabelBinarizer
 from sklearn.svm import LinearSVC
 
 from enums import MetricType, Split
-from model import ClassificationTransformer, NeuralNetwork, RegressionModel
+from model import ClassificationTransformer, NeuralNetwork
 from utils import metrics, pipeline
-from utils.pipeline import threshold_regression_prediction
 
-MLModel = Union[RandomForestClassifier, LinearSVC, RegressionModel, KerasClassifier]
+MLModel = Union[RandomForestClassifier, LinearSVC, KerasClassifier, LogisticRegression]
 SPLITS = 10
 
 
@@ -33,7 +32,7 @@ def train_kfold(
     encoder: LabelBinarizer = None,
     splits: int = 10,
 ):
-    """Train a model using logging/linguistic features with k-fold split and one-hot encoded labels."""
+    """Train a model using logging/linguistic features with k-fold split."""
     clf_report: List
     accuracy: List[float]
 
@@ -51,8 +50,8 @@ def train_kfold(
         model = model.fit(X_train_scaled, y_train)
         y_preds = model.predict(X_valid_scaled)
 
-        if model._estimator_type == "regressor":
-            y_preds = threshold_regression_prediction(y_preds)
+        # if model._estimator_type == "regressor":
+        #     y_preds = threshold_regression_prediction(y_preds)
         clf_report.append(precision_recall_fscore_support(y_valid, y_preds))
         accuracy.append(accuracy_score(y_valid, y_preds))
 
@@ -75,12 +74,6 @@ def train_parser() -> argparse.Namespace:
     # |-----------------------------------------|
     # |            BASE ARGUMENTS               |
     # |-----------------------------------------|
-    # parser.add_argument(
-    #     "-r",
-    #     "--result_path",
-    #     default="./transformer_predictions.txt",
-    #     help="Directory where to save results.",
-    # )
     parser.add_argument(
         "-tr",
         "--train_file",
@@ -100,6 +93,13 @@ def train_parser() -> argparse.Namespace:
         action="store_true",
         help="Whether to enable or disable logging.",
     )
+    parser.add_argument(
+        "--n_jobs",
+        help="Number of cpu cores to use.",
+        type=int,
+        default=-1,  # use all
+    )
+    parser.add_argument("--random_state", type=int, default=42)
     parser.add_argument("--grid", action="store_true")
     parser.add_argument("--encoder", action="store_true")
     # |-----------------------------------------|
@@ -133,71 +133,18 @@ def train_parser() -> argparse.Namespace:
     nn_parser.add_argument("-d", "--dropout", type=float, default=0.1)
     nn_parser.add_argument("-c", "--clipvalue", type=float, default=0.5)
     nn_parser.add_argument("-o", "--optimizer", type=str, default="Adam")
-    # |-----------------------------------------|
-    # |            REGRESSION ML MODELS         |
-    # |-----------------------------------------|
-    # TODO: add separate subparser for each regressor; writing a wrapper just to save
-    # 10 lines of code is not worth it
-    regressor_parser = subparsers.add_parser("ML_REG")
-    regressor_parser.add_argument("-subparser", "--subparser_ml_reg", default=True)
-    # Common regressor params
-    regressor_parser.add_argument(
-        "-m",
-        "--model",
-        type=str,
-        default=None,
-        required=True,
-        choices=["lr", "rr", "en"],
-        help="'lr': LinearRegression, 'rr': Ridge, 'en': ElasticNet",
-    )
-    regressor_parser.add_argument(
-        "-n",
-        "--normalize",
-        action="store_true",
-        help="Subtract mean and divide by L2-norm.",
-    )
 
-    # LinearRegression() params
-    regressor_parser.add_argument("--n_jobs", type=int, default=-1)
-
-    # Ridge() and ElasticNet() params
-    regressor_parser.add_argument(
-        "-a",
-        "--alpha",
-        type=float,
-        default=1.0,
-        help="Control L2 term by multiplication with alpha, in [0, inf].",
-    )
-
-    # ElasticNet() params
-    regressor_parser.add_argument(
-        "-l1",
-        "--l1_ratio",
-        type=float,
-        default=0.5,
-        help="For l1=0 the penalty is an L2 penalty. For l1=1 it is an L1 penalty.",
-    )
-    regressor_parser.add_argument("--max_iter", type=int, default=1000)
-    regressor_parser.add_argument(
-        "--tol", type=float, default=1e-4, help="Tolerance for optimization."
-    )
-    regressor_parser.add_argument(
-        "--selection",
-        type=str,
-        default="random",
-        help="Setting ‘random’ often leads to significantly faster convergence,"
-        " especially when tol is higher than 1e-4.",
-    )
     # |-----------------------------------------|
     # |           CLASSIFIER ML MODELS          |
     # |-----------------------------------------|
     # 1) LinearSVC
     svc_parser = subparsers.add_parser("ML_CLF_SVC")
     svc_parser.add_argument("-subparser", "--subparser_ml_clf_svc", default=True)
-    svc_parser.add_argument("--penalty", type=str, choices=["l1", "l2"], default="l2")
+    svc_parser.add_argument("--penalty", type=str, choices=["l1", "l2"], default="l1")
     svc_parser.add_argument(
         "--loss", type=str, choices=["hinge", "squared_hinge"], default="squared_hinge"
     )
+    svc_parser.add_argument("-d", "--dual", action="store_true")
     svc_parser.add_argument(
         "--C",
         type=float,
@@ -205,7 +152,7 @@ def train_parser() -> argparse.Namespace:
         default=1.0,
     )
     svc_parser.add_argument("--max_iter", type=int, default=1000)
-    svc_parser.add_argument("--tol", type=float, default=1e-4)
+    svc_parser.add_argument("--tol", type=float, default=1e-5)
 
     # 2) RandomForest
     randomforest_parser = subparsers.add_parser("ML_CLF_RF")
@@ -227,10 +174,32 @@ def train_parser() -> argparse.Namespace:
         " or contain less than min_samples",
     )
     randomforest_parser.add_argument("--min_samples", type=int, default=2)
+
+    # 3) LogisticRegression
+    regressor_parser = subparsers.add_parser("ML_REG")
+    regressor_parser.add_argument("-subparser", "--subparser_ml_reg", default=True)
+    regressor_parser.add_argument(
+        "-n",
+        "--normalize",
+        action="store_true",
+        help="Subtract mean and divide by L2-norm.",
+    )
+    regressor_parser.add_argument(
+        "--penalty", type=str, default="elasticnet"
+    )  # elasticnet adds both l1 and l2 terms
+    regressor_parser.add_argument("--tol", type=float, default=1e4)
+    regressor_parser.add_argument("--C", type=float, default=1)
+    regressor_parser.add_argument("--l1_ratio", type=float, default=0)
+    regressor_parser.add_argument("--max_iter", type=float, default=1000)
+    regressor_parser.add_argument("--solver", type=str, default="saga")
+
     return parser.parse_args()
 
 
-def select_model(args: argparse.Namespace) -> Union[MLModel, ClassificationTransformer]:
+def select_model(
+    args: argparse.Namespace,
+    param_grid: Dict[str, Dict[str, List[Union[float, int, str]]]],
+) -> Union[MLModel, ClassificationTransformer]:
     # |--------------------|
     # |       BERT         |
     # |--------------------|
@@ -264,32 +233,24 @@ def select_model(args: argparse.Namespace) -> Union[MLModel, ClassificationTrans
         # |--------------------|
         elif hasattr(args, "subparser_ml_reg"):
             if not args.grid:
-                model = ElasticNet(
-                    normalize=args.normalize,
+                model = LogisticRegression(
+                    n_jobs=args.n_jobs,
                     l1_ratio=args.l1_ratio,
-                    precompute=True,
+                    penalty=args.penalty,
                     max_iter=args.max_iter,
                     tol=args.tol,
-                    selection=args.selection,
+                    random_state=args.random_state,
+                    solver=args.solver,
                 )
-                # model = RegressionModel(
-                #     args.model,
-                #     normalize=args.normalize,
-                #     n_jobs=args.n_jobs,
-                #     alpha=args.alpha,
-                #     l1_ratio=args.l1_ratio,
-                #     precompute=True,
-                #     max_iter=args.max_iter,
-                #     tol=args.tol,
-                #     selection=args.selection,
-                # )
             else:
                 model = GridSearchCV(
-                    estimator=RegressionModel(args.model),
-                    param_grid=param_grid["Regression"],
+                    estimator=LogisticRegression(
+                        penalty="elasticnet", solver=args.solver
+                    ),
+                    param_grid=param_grid["LogisticRegression"],
                     cv=cv,
                     n_jobs=args.n_jobs,
-                    scoring=[f1_score, accuracy_score],
+                    scoring="accuracy",
                 )
         # |--------------------|
         # |     LinearSVC      |
@@ -302,6 +263,7 @@ def select_model(args: argparse.Namespace) -> Union[MLModel, ClassificationTrans
                     loss=args.loss,
                     penalty=args.penalty,
                     max_iter=args.max_iter,
+                    dual=args.dual,
                 )
             else:
                 model = GridSearchCV(
@@ -309,7 +271,7 @@ def select_model(args: argparse.Namespace) -> Union[MLModel, ClassificationTrans
                     param_grid=param_grid["LinearSVC"],
                     cv=cv,
                     n_jobs=-args.n_jobs,
-                    scoring=["f1_samples", "accuracy"],
+                    scoring="accuracy",
                 )
         # |--------------------|
         # |   RANDOMFOREST CLF |
@@ -328,7 +290,7 @@ def select_model(args: argparse.Namespace) -> Union[MLModel, ClassificationTrans
                     estimator=RandomForestClassifier(n_jobs=-1),
                     param_grid=param_grid["RandomForest"],
                     cv=cv,
-                    scoring=["accuracy"],
+                    scoring="accuracy",
                     verbose=1,
                 )
         else:
@@ -342,17 +304,16 @@ if __name__ == "__main__":
 
     # wandb.init(project="NLP", entity="petervarga", name="suhano nyilvesszo")
     args = train_parser()
+    print(vars(args))
     # wandb.config.update(args)
 
     # TODO: NeuralNetwork
-    param_grid = {
+    gridsearchcv_param_grid = {
         "NeuralNetwork": {},
-        "Regression": {
-            "alpha": [0.5, 1, 2, 5, 10],
-            "l1_ratio": [0.1, 0.25, 0.5, 0.75, 1],
-            "max_iter": [100, 500, 1000, 2000],
+        "LogisticRegression": {
+            "l1_ratio": [0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1.0],
+            "max_iter": [100, 250, 500, 1000, 2000],
             "tol": [1e-5, 5e-5, 1e-4, 5e-4, 1e-3, 5e-3, 1e-2, 5e-2],
-            "selection": ["cyclic", "random"],
         },
         "RandomForest": {
             "n_estimators": [50, 100, 200, 500],
@@ -369,7 +330,7 @@ if __name__ == "__main__":
     }
 
     cv = ShuffleSplit(n_splits=10, test_size=0.1)
-    estimator = select_model(args)
+    estimator = select_model(args, gridsearchcv_param_grid)
 
     if not isinstance(estimator, ClassificationTransformer):
         print("Preparing dataset for training Machine Learning model...")
@@ -393,17 +354,15 @@ if __name__ == "__main__":
         X = df_train.to_numpy()
         y = pipeline.get_labels(Split.TRAIN)
 
-        if args.encoder:
-            y_encoder = pipeline.get_label_encoder(Split.TRAIN)
-        else:
-            y_encoder = None
+        # if args.encoder:
+        #     y_encoder = pipeline.get_label_encoder(Split.TRAIN)
+        # else:
+        #     y_encoder = None
 
         print("Training Machine Learning model...")
         if not args.grid:
-
-            scores = train_kfold(estimator, X, y, y_encoder, splits=SPLITS)
+            scores = train_kfold(estimator, X, y, splits=SPLITS)
             score = metrics.get_avg_score(scores)
-
             # LOG TO WANDB
             score[MetricType.CLF_REPORT] = metrics.explain_clf_score(
                 score[MetricType.CLF_REPORT]
@@ -414,11 +373,16 @@ if __name__ == "__main__":
             # plot_feature_importances(estimator, df_train.columns)
             pprint.pprint(score)
         else:
-            # TODO: fix reshape
-            X_train_scaled = pipeline.scaling(X.reshape(-1, 1))
-            y = y_encoder.transform(y) if y_encoder else y
+            X_train_scaled = pipeline.scaling(X)
+            print(len(X_train_scaled), len(y))
             estimator.fit(X_train_scaled, y)
-            print(sorted(estimator.cv_results_.keys()))
+            # import pdb
+            # pdb.set_trace()
+            # print(sorted(estimator.cv_results_.keys()))
+            print("ESTIMATOR BEST SCORE:", estimator.best_score_)
+            print("ESTIMATOR BEST PARAMS:", estimator.best_params_)
+            print("ESTIMATOR BEST ESTIMATOR:", estimator.best_estimator_)
+            # TODO: Add WANDB logging for best_estimator_, best_score, best_params_
     else:
         pass  # TODO: Bert training
         print("Training BERT model...")
