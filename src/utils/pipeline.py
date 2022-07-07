@@ -150,8 +150,8 @@ def transform_predictions(predictions: np.ndarray) -> str:
     return "".join(transformed_predictions)
 
 
-def threshold_regression_prediction(predictions: np.ndarray) -> np.ndarray:
-    """Convert softmax regression values within a vector to one-hot encoding, based on argmax."""
+def softmax2onehot(predictions: np.ndarray) -> np.ndarray:
+    """Convert softmax values within an array of vectors to one-hot encoding, based on argmax."""
     preds_one_hot = []
     for vector in predictions:
         argmax = np.argmax(vector)

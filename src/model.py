@@ -12,55 +12,57 @@ class NeuralNetwork:
     def __init__(
         self,
         input_len: int = None,
-        lr: float = None,
-        clipvalue: float = None,
+        output_len: int = None,
+        patience: int = 100,
+        lr: float = 1e-3,
+        clipvalue: float = 0.5,
         layers=(512, 256),
-        patience: int = None,
-        batch_size: int = None,
+        batch_size: int = 16,
+        dropout: float = 0.1,
+        epochs: int = 1000,
+        optimizer: str = "Adam",
     ):
+        self.input_len = input_len
+        self.output_len = output_len
         self.lr = lr
         self.clipvalue = clipvalue
-        self.input_len = input_len
         self.layers = layers
         self.patience = patience
         self.batch_size = batch_size
+        self.epochs = epochs
+        self.optimizers = {
+            "Adam": tf.keras.optimizers.Adam(
+                learning_rate=self.lr, clipvalue=self.clipvalue
+            ),
+            "RMSprop": tf.keras.optimizers.RMSprop(
+                learning_rate=self.lr, clipvalue=self.clipvalue
+            ),
+        }
+        self.optimizer = self.optimizers[optimizer]
+        self.dropout = dropout
 
         self.input_layer = Input(shape=(self.input_len,))
         self.dense = Dense(self.layers[0], activation="relu")(self.input_layer)
         self.dense = BatchNormalization()(self.dense)
-        self.dense = Dropout(0.1)(self.dense)
+        self.dense = Dropout(self.dropout)(self.dense)
         for layer in self.layers[1:]:
             self.dense = Dense(layer, activation="relu")(self.dense)
             self.dense = BatchNormalization()(self.dense)
-            self.dense = Dropout(0.1)(self.dense)
+            self.dense = Dropout(self.dropout)(self.dense)
         self.output_layer = Dense(3, activation="softmax")(self.dense)
 
-        self.model = self.model()
-        self.summary = self.summary()
+        print("Compiling keras model...")
+        self.model = tf.keras.Model(inputs=self.input_layer, outputs=self.output_layer)
         self.compile_model()
+        print("Model build has completed.")
         self.train_history: Dict[str, NDArray] = {}
 
-    @property
-    def model(self):
-        return self._model
-
-    @model.setter
-    def model(self):
-        self._model = tf.keras.Model(inputs=self.input_layer, outputs=self.output_layer)
-
-    @property
-    def summary(self):
-        return self._summary
-
-    @summary.setter
-    def summary(self):
-        self._summary = self.model.summary()
+    def summary(self) -> Any:
+        return self.model.summary()
 
     def compile_model(self) -> None:
-        self._model.compile(
-            optimizer=tf.keras.optimizers.Adam(
-                learning_rate=self.lr, clipvalue=self.clipvalue
-            ),
+        self.model.compile(
+            optimizer=self.optimizer,
             loss=tf.keras.losses.CategoricalCrossentropy(),
             metrics=["accuracy"],
         )
@@ -105,7 +107,7 @@ class NeuralNetwork:
         self.train_history = self.model.fit(
             X_y_train,
             validation_data=X_y_valid,
-            epochs=1000,
+            epochs=self.epochs,
             callbacks=[self.get_early_stopping()],
         ).history
 
@@ -198,3 +200,8 @@ class ClassificationTransformer(ClassificationModel):
         """
         train_df = self._reformat_train(X_train, y_train)
         self.train_model(train_df)
+
+
+def get_model_classname(model: Any) -> str:
+    """Utility function to return the name of the class of the model."""
+    return model.__class__.__name__

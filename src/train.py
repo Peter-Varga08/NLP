@@ -4,7 +4,7 @@ Example usage: python train.py ML_CLF_RF
 
 import argparse
 import pprint
-from typing import List, Union, Dict
+from typing import List, Union, Dict, Tuple
 
 import pandas as pd
 from numpy.typing import NDArray
@@ -18,10 +18,17 @@ from sklearn.preprocessing import LabelBinarizer
 from sklearn.svm import LinearSVC
 
 from enums import MetricType, Split
-from model import ClassificationTransformer, NeuralNetwork
+from model import ClassificationTransformer, NeuralNetwork, get_model_classname
+from src.utils.pipeline import softmax2onehot
 from utils import metrics, pipeline
 
-MLModel = Union[RandomForestClassifier, LinearSVC, KerasClassifier, LogisticRegression]
+MLModel = Union[
+    RandomForestClassifier,
+    LinearSVC,
+    NeuralNetwork,
+    KerasClassifier,
+    LogisticRegression,
+]
 SPLITS = 10
 
 
@@ -29,7 +36,6 @@ def train_kfold(
     model: MLModel,
     X: NDArray,
     y: NDArray,
-    encoder: LabelBinarizer = None,
     splits: int = 10,
 ):
     """Train a model using logging/linguistic features with k-fold split."""
@@ -37,23 +43,28 @@ def train_kfold(
     accuracy: List[float]
 
     skf = StratifiedKFold(n_splits=splits, shuffle=True, random_state=42)
+    label_encoder = LabelBinarizer().fit(y)
     clf_report = []
     accuracy = []
     for train_index, valid_index in skf.split(X, y):
         X_train, X_valid = X[train_index], X[valid_index]
         y_train, y_valid = y[train_index], y[valid_index]
-        if encoder:
-            y_train, y_valid = encoder.transform(
-                y_train,
-            ), encoder.transform(y_valid)
+        y_train_encoded, y_valid_encoded = label_encoder.transform(
+            y_train
+        ), label_encoder.transform(y_valid)
         X_train_scaled, X_valid_scaled = pipeline.scaling(X_train, X_valid)
-        model = model.fit(X_train_scaled, y_train)
-        y_preds = model.predict(X_valid_scaled)
 
-        # if model._estimator_type == "regressor":
-        #     y_preds = threshold_regression_prediction(y_preds)
-        clf_report.append(precision_recall_fscore_support(y_valid, y_preds))
-        accuracy.append(accuracy_score(y_valid, y_preds))
+        model_name = get_model_classname(model)
+        # For the neural network, fit function requires validation data to do early-stopping
+        if model_name == "NeuralNetwork":
+            model.fit(X_train_scaled, y_train_encoded, X_valid_scaled, y_valid_encoded)
+            y_preds = softmax2onehot(model.predict(X_valid_scaled))
+        else:
+            model = model.fit(X_train_scaled, y_train_encoded)
+            y_preds = model.predict(X_valid_scaled)
+
+        clf_report.append(precision_recall_fscore_support(y_valid_encoded, y_preds))
+        accuracy.append(accuracy_score(y_valid_encoded, y_preds))
 
     result = {
         MetricType.CLF_REPORT: clf_report,
@@ -127,12 +138,13 @@ def train_parser() -> argparse.Namespace:
         help="Patience of early stopping.",
         default=100,
     )
-    nn_parser.add_argument("-l", "--learning_rate", type=float, default=1e-3)
-    nn_parser.add_argument("-b", "--batch_size", type=int, default=16)
-    nn_parser.add_argument("-ep", "--epochs", type=int, default=50)
-    nn_parser.add_argument("-d", "--dropout", type=float, default=0.1)
-    nn_parser.add_argument("-c", "--clipvalue", type=float, default=0.5)
-    nn_parser.add_argument("-o", "--optimizer", type=str, default="Adam")
+    nn_parser.add_argument("--lr", type=float, default=1e-3)
+    nn_parser.add_argument("--batch_size", type=int, default=16)
+    nn_parser.add_argument("--epochs", type=int, default=1000)
+    nn_parser.add_argument("--dropout", type=float, default=0.1)
+    nn_parser.add_argument("--clipvalue", type=float, default=0.5)
+    nn_parser.add_argument("--optimizer", type=str, default="Adam")
+    nn_parser.add_argument("--patience", type=int, default=100)
 
     # |-----------------------------------------|
     # |           CLASSIFIER ML MODELS          |
@@ -196,92 +208,102 @@ def train_parser() -> argparse.Namespace:
     return parser.parse_args()
 
 
-def select_model(
-    args: argparse.Namespace,
+def load_model(
+    model_args: argparse.Namespace,
     param_grid: Dict[str, Dict[str, List[Union[float, int, str]]]],
 ) -> Union[MLModel, ClassificationTransformer]:
+    """Select a specific classifier model based on parsed arguments."""
+    cv = ShuffleSplit(
+        n_splits=10, test_size=0.1
+    )  # use same CV for all gridsearch models
     # |--------------------|
     # |       BERT         |
     # |--------------------|
-    if hasattr(args, "subparser_bert"):
+    if hasattr(model_args, "subparser_bert"):
         # Define model
-        model_args = ClassificationArgs()
-        model_args.num_train_epochs = 3
-        model_args.overwrite_output_dir = True
-        model_args.learning_rate = 0.000001
-        model_args.do_lower_case = True
-        model_args.silence = True
-        model = ClassificationTransformer(args.bert_config, model_args)
+        bert_args = ClassificationArgs()
+        bert_args.num_train_epochs = 3
+        bert_args.overwrite_output_dir = True
+        bert_args.learning_rate = 0.000001
+        bert_args.do_lower_case = True
+        bert_args.silence = True
+        model = ClassificationTransformer(model_args.bert_config, bert_args)
     else:
         # |--------------------|
         # |   Neural Network   |
         # |--------------------|
-        if hasattr(args, "subparser_nn"):
-            if not args.grid:
-                nn = NeuralNetwork(
-                    input_len=args.input_len, lr=args.lr, clipvalue=args.clip_value
+        if hasattr(model_args, "subparser_nn"):
+            if not model_args.grid:
+                model = NeuralNetwork(
+                    input_len=model_args.input_len,
+                    lr=model_args.lr,
+                    clipvalue=model_args.clipvalue,
+                    patience=model_args.patience,
+                    batch_size=model_args.batch_size,
+                    epochs=model_args.epochs,
+                    optimizer=args.optimizer,
                 )
-                # TODO: fix
-                model = KerasClassifier(
-                    nn.model, batch_size=args.batch_size, epochs=args.epochs, verbose=1
-                )
+                # # TODO: fix
+                # model = KerasClassifier(
+                #     nn.model, batch_size=model_args.batch_size, epochs=model_args.epochs, verbose=1
+                # )
             else:
                 # TODO: add GridSearchCV to KerasCLassifier
                 model = None
         # |--------------------|
         # |     REGRESSORS     |
         # |--------------------|
-        elif hasattr(args, "subparser_ml_reg"):
-            if not args.grid:
+        elif hasattr(model_args, "subparser_ml_reg"):
+            if not model_args.grid:
                 model = LogisticRegression(
-                    n_jobs=args.n_jobs,
-                    l1_ratio=args.l1_ratio,
-                    penalty=args.penalty,
-                    max_iter=args.max_iter,
-                    tol=args.tol,
-                    random_state=args.random_state,
-                    solver=args.solver,
+                    n_jobs=model_args.n_jobs,
+                    l1_ratio=model_args.l1_ratio,
+                    penalty=model_args.penalty,
+                    max_iter=model_args.max_iter,
+                    tol=model_args.tol,
+                    random_state=model_args.random_state,
+                    solver=model_args.solver,
                 )
             else:
                 model = GridSearchCV(
                     estimator=LogisticRegression(
-                        penalty="elasticnet", solver=args.solver
+                        penalty="elasticnet", solver=model_args.solver
                     ),
                     param_grid=param_grid["LogisticRegression"],
                     cv=cv,
-                    n_jobs=args.n_jobs,
+                    n_jobs=model_args.n_jobs,
                     scoring="accuracy",
                 )
         # |--------------------|
         # |     LinearSVC      |
         # |--------------------|
-        elif hasattr(args, "subparser_ml_clf_svc"):
-            if not args.grid:
+        elif hasattr(model_args, "subparser_ml_clf_svc"):
+            if not model_args.grid:
                 model = LinearSVC(
-                    C=args.C,
-                    tol=args.tol,
-                    loss=args.loss,
-                    penalty=args.penalty,
-                    max_iter=args.max_iter,
-                    dual=args.dual,
+                    C=model_args.C,
+                    tol=model_args.tol,
+                    loss=model_args.loss,
+                    penalty=model_args.penalty,
+                    max_iter=model_args.max_iter,
+                    dual=model_args.dual,
                 )
             else:
                 model = GridSearchCV(
                     estimator=LinearSVC(),
                     param_grid=param_grid["LinearSVC"],
                     cv=cv,
-                    n_jobs=-args.n_jobs,
+                    n_jobs=-model_args.n_jobs,
                     scoring="accuracy",
                 )
         # |--------------------|
         # |   RANDOMFOREST CLF |
         # |--------------------|
-        elif hasattr(args, "subparser_ml_clf_rf"):
-            if not args.grid:
+        elif hasattr(model_args, "subparser_ml_clf_rf"):
+            if not model_args.grid:
                 model = RandomForestClassifier(
-                    n_estimators=args.n_estimators,
-                    max_depth=args.max_depth,
-                    min_samples_split=args.min_samples,
+                    n_estimators=model_args.n_estimators,
+                    max_depth=model_args.max_depth,
+                    min_samples_split=model_args.min_samples,
                     random_state=42,
                     n_jobs=-1,
                 )
@@ -300,11 +322,58 @@ def select_model(
     return model
 
 
+def load_ml_train_dataset(dataset_choice: str = None) -> Tuple[NDArray, NDArray]:
+    """Select the correct TRAINING dataset for a non-transformer ML model."""
+    print("Preparing dataset for training Machine Learning model...")
+    if dataset_choice == "ling":
+        print("Loading linguistic features only...")
+        df_train = pipeline.get_ling_feats(Split.TRAIN)
+    elif dataset_choice == "both":
+        print("Loading linguistic and logging features...")
+        df_train_log = pipeline.load_dataframe(split=Split.TRAIN, only_numeric=True)
+        df_train_ling = pipeline.get_ling_feats()
+        df_train = pd.concat(
+            [
+                df_train_log.reset_index(drop=True),
+                df_train_ling.reset_index(drop=True),
+            ],
+            axis="columns",
+        )
+    else:
+        print("Loading only logging features...")
+        df_train = pipeline.load_dataframe(split=Split.TRAIN, only_numeric=True)
+    X = df_train.to_numpy()
+    y = pipeline.get_labels(Split.TRAIN)
+    return X, y
+
+
 if __name__ == "__main__":
 
     # wandb.init(project="NLP", entity="petervarga", name="suhano nyilvesszo")
-    args = train_parser()
-    print(vars(args))
+    # args = train_parser()
+
+    args = argparse.Namespace(
+        **{
+            "train_file": "../data/",
+            "features": None,
+            "verbose": False,
+            "n_jobs": -1,
+            "random_state": 42,
+            "grid": False,
+            "encoder": False,
+            "subparser_nn": True,
+            "early_stopping": 100,
+            "lr": 0.001,
+            "batch_size": 16,
+            "epochs": 1000,
+            "dropout": 0.1,
+            "clipvalue": 0.5,
+            "optimizer": "Adam",
+            "patience": 100,
+            "input_len": 23,
+            "output_len": 3,
+        }
+    )
     # wandb.config.update(args)
 
     # TODO: NeuralNetwork
@@ -329,39 +398,23 @@ if __name__ == "__main__":
         },
     }
 
-    cv = ShuffleSplit(n_splits=10, test_size=0.1)
-    estimator = select_model(args, gridsearchcv_param_grid)
-
-    if not isinstance(estimator, ClassificationTransformer):
-        print("Preparing dataset for training Machine Learning model...")
-        if args.features == "ling":
-            print("Loading linguistic features only...")
-            df_train = pipeline.get_ling_feats(Split.TRAIN)
-        elif args.features == "both":
-            print("Loading linguistic and logging features...")
-            df_train_log = pipeline.load_dataframe(split=Split.TRAIN, only_numeric=True)
-            df_train_ling = pipeline.get_ling_feats()
-            df_train = pd.concat(
-                [
-                    df_train_log.reset_index(drop=True),
-                    df_train_ling.reset_index(drop=True),
-                ],
-                axis="columns",
-            )
-        else:
-            print("Loading only logging features...")
-            df_train = pipeline.load_dataframe(split=Split.TRAIN, only_numeric=True)
-        X = df_train.to_numpy()
-        y = pipeline.get_labels(Split.TRAIN)
-
-        # if args.encoder:
-        #     y_encoder = pipeline.get_label_encoder(Split.TRAIN)
-        # else:
-        #     y_encoder = None
-
+    if not hasattr(args, "subparser_bert"):
+        # |-------------------|
+        # |    Load DATASET   |
+        # |-------------------|
+        X_train, y_train = load_ml_train_dataset(args.features)
+        # |-----------------------------|
+        # |    Load and Train MODEL     |
+        # |-----------------------------|
+        # vargs = vars(args)
+        # vargs.update(
+        #     {"input_len": X_train.shape[1], "output_len": len(np.unique(y_train))}
+        # )
+        # args = argparse.Namespace(**vargs)
+        estimator = load_model(args, gridsearchcv_param_grid)
         print("Training Machine Learning model...")
         if not args.grid:
-            scores = train_kfold(estimator, X, y, splits=SPLITS)
+            scores = train_kfold(estimator, X_train, y_train, splits=SPLITS)
             score = metrics.get_avg_score(scores)
             # LOG TO WANDB
             score[MetricType.CLF_REPORT] = metrics.explain_clf_score(
@@ -373,16 +426,17 @@ if __name__ == "__main__":
             # plot_feature_importances(estimator, df_train.columns)
             pprint.pprint(score)
         else:
-            X_train_scaled = pipeline.scaling(X)
-            print(len(X_train_scaled), len(y))
-            estimator.fit(X_train_scaled, y)
-            # import pdb
-            # pdb.set_trace()
-            # print(sorted(estimator.cv_results_.keys()))
+            X_train_scaled = pipeline.scaling(X_train)
+            print(len(X_train_scaled), len(y_train))
+            estimator.fit(X_train_scaled, y_train)
             print("ESTIMATOR BEST SCORE:", estimator.best_score_)
             print("ESTIMATOR BEST PARAMS:", estimator.best_params_)
             print("ESTIMATOR BEST ESTIMATOR:", estimator.best_estimator_)
             # TODO: Add WANDB logging for best_estimator_, best_score, best_params_
     else:
         pass  # TODO: Bert training
+        estimator = load_model(args, gridsearchcv_param_grid)
+        X = None
+        y = None
         print("Training BERT model...")
+        # estimator = estimator.fit()
