@@ -3,7 +3,7 @@ from typing import Dict, List, Tuple, Union
 import numpy as np
 from numpy.typing import NDArray
 
-from enums import MetricType
+from src.enums import MetricType
 
 ClfReports = List[Tuple[NDArray]]
 AccuracyScores = List[float]
@@ -23,13 +23,17 @@ def get_avg_score(scores: Dict[MetricType, Union[ClfReports, AccuracyScores]]):
     Return average of each passed score. Requires 'clf_report' and 'accuracy_score' keys.
     """
     avg_score = {}
-    for metric in scores:
+    for metric in scores.keys():
         if metric is MetricType.CLF_REPORT:
             avg_score[metric] = get_avg_clf_report(scores[metric])
         elif metric is MetricType.ACCURACY_SCORE:
             avg_score[metric] = get_avg_accuracy(scores[metric])
         else:
-            raise TypeError("Wrong metric type used as key in input.")
+            raise TypeError(
+                "Wrong metric type received as key in input dictionary.\n"
+                f"Received type: [{metric}],"
+                f" accepted types: [{MetricType.CLF_REPORT, MetricType.ACCURACY_SCORE}]."
+            )
     return avg_score
 
 

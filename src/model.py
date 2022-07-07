@@ -1,3 +1,4 @@
+import gc
 from typing import Any, Dict, List
 
 import pandas as pd
@@ -49,13 +50,19 @@ class NeuralNetwork:
             self.dense = Dense(layer, activation="relu")(self.dense)
             self.dense = BatchNormalization()(self.dense)
             self.dense = Dropout(self.dropout)(self.dense)
-        self.output_layer = Dense(3, activation="softmax")(self.dense)
+        self.output_layer = Dense(self.output_len, activation="softmax")(self.dense)
 
         print("Compiling keras model...")
         self.model = tf.keras.Model(inputs=self.input_layer, outputs=self.output_layer)
         self.compile_model()
         print("Model build has completed.")
         self.train_history: Dict[str, NDArray] = {}
+
+    def __del__(self) -> None:
+        tf.keras.backend.clear_session()
+        gc.collect()
+        if hasattr(self, "model"):
+            del self.model
 
     def summary(self) -> Any:
         return self.model.summary()
@@ -111,11 +118,14 @@ class NeuralNetwork:
             callbacks=[self.get_early_stopping()],
         ).history
 
-    def predict(self, X_valid: NDArray) -> NDArray:
-        return self.model.predict(X_valid)
+    def predict(self, X: NDArray) -> NDArray:
+        return self.model.predict(X)
 
-    def evaluate(self, X_valid: NDArray, y_valid: NDArray) -> Any:
-        return self.model.evaluate(X_valid, y_valid)
+    def evaluate(self, X: NDArray, y: NDArray) -> Any:
+        return self.model.evaluate(X, y)
+
+    def predict_proba(self, X):
+        return self.model.predict_proba(X)
 
 
 # TODO

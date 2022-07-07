@@ -6,12 +6,13 @@ import pandas as pd
 from datasets import load_dataset
 from matplotlib import pyplot as plt
 from numpy import ndarray
+from numpy.typing import NDArray
 from sklearn.ensemble import RandomForestClassifier
 from sklearn.feature_selection import SelectKBest
 from sklearn.linear_model import LinearRegression
 from sklearn.preprocessing import LabelBinarizer, StandardScaler
 
-from enums import ConfigMode, Split
+from src.enums import ConfigMode, Split
 
 DATA_PATH = "../data/"
 
@@ -63,24 +64,30 @@ def load_dataframe(split: Split = None, only_numeric=False):
 
 
 def get_labels(split: Split):
+    """Load labels of a given split."""
     return np.array(split_load_dataset(split).subject_id)
 
 
 def get_label_encoder(split: Split):
+    """Return a LabelBinarizer object fit on the chosen data 'Split'."""
     df = split_load_dataset(split)
     encoder = LabelBinarizer()
     encoder.fit(np.array(df.subject_id))
     return encoder
 
 
-# TODO: Handle scaling for test set too
-def scaling(X_train, *X_valid):
+def scaling(
+    X_train: NDArray, *X_other: List[NDArray]
+) -> Union[NDArray, Tuple[NDArray, NDArray]]:
+    """
+    Apply StandardScaling to train (and other optional, e.g. validation or test) datasets.
+    """
     scale = StandardScaler()
     X_train = scale.fit_transform(X_train)
-    if len(X_valid) == 1 and isinstance(X_valid[0], ndarray):
-        X_valid = X_valid[0]
-        X_valid = scale.transform(X_valid)
-        return X_train, X_valid
+    if len(X_other) == 1 and isinstance(X_other[0], ndarray):
+        X_other = X_other[0]
+        X_other = scale.transform(X_other)
+        return X_train, X_other
     return X_train
 
 
@@ -143,7 +150,7 @@ def save_feature_importance_plots(
 
 
 def transform_predictions(predictions: np.ndarray) -> str:
-    """Transform one-hot encoded labels into integer labels."""
+    """Transform one-hot encoded labels into str(scalar) labels."""
     transformed_predictions = []
     for vector in predictions:
         transformed_predictions.append(str(np.argmax(vector)))
